@@ -15,6 +15,7 @@ import {
 } from '../http/auth.js';
 import { sendOtp } from '../services/sms.js';
 import { notify, registerPushToken } from '../services/notifications.js';
+import { expiryFromNow } from '../lib/duration.js';
 
 export const authRouter = Router();
 
@@ -228,9 +229,9 @@ authRouter.post(
       data: {
         tokenHash,
         userId: user.id,
-        expiresAt: new Date(
-          Date.now() + Number.parseInt(config.JWT_REFRESH_TTL, 10) * 86_400_000,
-        ),
+        // Same parser as the access token, so the two lifetimes can never be
+        // derived by different arithmetic.
+        expiresAt: expiryFromNow(config.JWT_REFRESH_TTL, undefined, 'JWT_REFRESH_TTL'),
         userAgent: req.header('user-agent')?.slice(0, 300),
       },
     });
@@ -297,7 +298,7 @@ authRouter.post(
         data: {
           tokenHash: next.tokenHash,
           userId: stored.user.id,
-          expiresAt: new Date(Date.now() + Number.parseInt(config.JWT_REFRESH_TTL, 10) * 86_400_000),
+          expiresAt: expiryFromNow(config.JWT_REFRESH_TTL, undefined, 'JWT_REFRESH_TTL'),
           userAgent: req.header('user-agent')?.slice(0, 300),
         },
       }),

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import { assertDuration } from './lib/duration.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -30,6 +31,9 @@ const schema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
 
   JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 characters'),
+  // Validated by parseDurationMs below, not by a bare z.string(). See
+  // lib/duration.ts: a unitless value like "3600" is ambiguous, and a value like
+  // "12h" used to be silently read as 12 days by the refresh-token path.
   JWT_ACCESS_TTL: z.string().default('15m'),
   JWT_REFRESH_TTL: z.string().default('30d'),
 
@@ -62,6 +66,18 @@ if (!parsed.success) {
 }
 
 const env = parsed.data;
+
+// Fail at startup, not at first login.
+//
+// Both TTLs are resolved by the same parser here and at every use site, so a typo
+// cannot produce one interpretation for the signed JWT and another for the
+// refresh-token row.
+for (const [value, label] of [
+  [env.JWT_ACCESS_TTL, 'JWT_ACCESS_TTL'],
+  [env.JWT_REFRESH_TTL, 'JWT_REFRESH_TTL'],
+] as const) {
+  assertDuration(value, label);
+}
 
 // Dev conveniences that must not survive into production.
 if (env.NODE_ENV === 'development') {

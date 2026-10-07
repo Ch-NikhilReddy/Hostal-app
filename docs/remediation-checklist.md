@@ -21,10 +21,12 @@ Status legend: `[x]` done · `[~]` in progress · `[ ]` pending
 
 ### C-2 Duration parser
 - [x] Confirmed (2 sites, `auth.routes.ts:232,300`)
-- [ ] Fixed
-- [ ] Unit tests — `30d 12h 60m 30s 500ms invalid empty negative zero`
-- [ ] JWT + DB expiry agree
-- [ ] Diff reviewed
+- [x] Fixed — `api/src/lib/duration.ts`, 3 call sites
+- [x] Unit tests (59) — `30d 12h 60m 30s 500ms invalid empty negative zero`
+- [x] Integration tests (6) — JWT and DB expiry agree
+- [x] Startup validation — bad TTL refuses boot
+- [x] Live probe — `probe-ttl-boot.mjs` 20/20
+- [x] Diff reviewed
 
 ### C-3 Explicit dev-OTP opt-in
 - [x] Confirmed live (`devOtp=953950` returned)

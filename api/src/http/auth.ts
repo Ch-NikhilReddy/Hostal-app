@@ -4,6 +4,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { Role } from '@prisma/client';
 import { config } from '../config.js';
 import { AppError } from '../lib/errors.js';
+import { parseDurationSeconds } from '../lib/duration.js';
 import { prisma } from '../db.js';
 
 export type AccessTokenClaims = {
@@ -14,8 +15,15 @@ export type AccessTokenClaims = {
 };
 
 export function signAccessToken(claims: AccessTokenClaims): string {
+  // Seconds resolved by our own parser rather than handing the config string to
+  // jsonwebtoken. Passing the raw string meant this lifetime was interpreted by
+  // the `ms` library while the refresh-token lifetime was interpreted by
+  // parseInt — two different answers for the same config format. Computing the
+  // number here means both paths share one implementation.
+  const expiresInSeconds = parseDurationSeconds(config.JWT_ACCESS_TTL, 'JWT_ACCESS_TTL');
+
   const options: SignOptions = {
-    expiresIn: config.JWT_ACCESS_TTL as SignOptions['expiresIn'],
+    expiresIn: expiresInSeconds,
     issuer: 'hostelmitra',
     audience: 'hostelmitra-app',
   };
