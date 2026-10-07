@@ -1,0 +1,30 @@
+node_modules/
+.env
+.env.local
+*.log
+
+# Build output
+dist/
+build/
+.expo/
+web/dist/
+apps/*/dist/
+
+# Local runtime data: uploaded photos, generated files
+var/
+
+# Test + coverage
+coverage/
+test-results.json
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Android signing — never commit
+*.keystore
+*.jks
+android/app/google-services.json

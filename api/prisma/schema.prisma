@@ -1,0 +1,624 @@
+// HostelMitra data model.
+//
+// Money rule: every monetary column is an Int holding PAISE (1 INR = 100 paise).
+// No Float, no Decimal for money anywhere in this schema. A hostel rent of
+// ₹8,500 is 850000. Float arithmetic on currency eventually produces a booking
+// total that does not equal the sum of its parts, and that is the one bug a
+// payments product cannot ship.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Role {
+  STUDENT
+  OWNER
+  ADMIN
+}
+
+enum VerificationStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  MIXED
+}
+
+enum HostelType {
+  PG
+  HOSTEL
+  SERVICED_APARTMENT
+}
+
+enum SharingType {
+  SINGLE
+  DOUBLE
+  TRIPLE
+  FOUR_OR_MORE
+}
+
+enum BedStatus {
+  AVAILABLE
+  OCCUPIED
+  MAINTENANCE
+}
+
+/// Which pricing model applied to a booking. A single bed can be sold three ways,
+/// so the rate that was actually charged has to travel with the booking.
+enum StayType {
+  MONTHLY
+  SHORT_STAY
+  DAY_STAY
+}
+
+enum BookingStatus {
+  PENDING_PAYMENT
+  PENDING_OWNER
+  CONFIRMED
+  REJECTED
+  CANCELLED_BY_STUDENT
+  CANCELLED_BY_OWNER
+  CHECKED_IN
+  CHECKED_OUT
+  REFUNDED
+  EXPIRED
+}
+
+enum PaymentStatus {
+  CREATED
+  ATTEMPTED
+  PAID
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum PaymentProvider {
+  MOCK
+  RAZORPAY
+}
+
+enum DocumentType {
+  GST_CERTIFICATE
+  PAN_CARD
+  AADHAAR
+  BANK_PROOF
+  PROPERTY_PROOF
+  OTHER
+}
+
+enum NotificationChannel {
+  IN_APP
+  PUSH
+  SMS
+}
+
+// ---------------------------------------------------------------------------
+// Identity
+// ---------------------------------------------------------------------------
+
+model User {
+  id        String   @id @default(cuid())
+  phone     String   @unique
+  name      String
+  email     String?
+  avatarUrl String?
+  role      Role     @default(STUDENT)
+  isActive  Boolean  @default(true)
+
+  /// Admins can provision a locked account (no OTP) for emergency login.
+  isPasswordlessOnly Boolean @default(true)
+
+  collegeId String?
+  college   College? @relation(fields: [collegeId], references: [id], onDelete: SetNull)
+
+  // A student must be verified before they can hold a booking; owners must be
+  // verified before a hostel goes live; admins must be verified before acting.
+  verified   Boolean @default(false)
+  verifiedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  otpCodes       OtpCode[]
+  refreshTokens  RefreshToken[]
+  pushTokens     PushToken[]
+  ownerProfile   Owner?
+  bookings       Booking[]
+  notifications  Notification[]
+  reviewedDocuments OwnerDocument[] @relation("DocumentReviewer")
+
+  @@index([role])
+  @@index([collegeId])
+  @@map("users")
+}
+
+/// OTP codes are hashed at rest and single-use. `attempts` caps brute force on a
+/// 6-digit code: 5 wrong guesses burns the code and forces a new one.
+model OtpCode {
+  id        String    @id @default(cuid())
+  phone     String
+  codeHash  String
+  purpose   String    @default("login")
+  expiresAt DateTime
+  consumedAt DateTime?
+  attempts  Int       @default(0)
+  createdAt DateTime  @default(now())
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([phone, createdAt])
+  @@map("otp_codes")
+}
+
+/// A device registered for Firebase Cloud Messaging push.
+/// Keyed on the token itself: FCM rotates tokens, and a rotated token that
+/// belongs to the same user must be reassigned, not duplicated.
+model PushToken {
+  id     String   @id @default(cuid())
+  token  String   @unique
+  platform String
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@map("push_tokens")
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  /// sha256 of the token. The plaintext is returned to the client once and
+  /// never stored, so a database leak does not hand over live sessions.
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  userAgent String?
+  createdAt DateTime  @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Colleges — the anchor for location-based search
+// ---------------------------------------------------------------------------
+
+model College {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  city      String   @default("Hyderabad")
+  district  String?
+  address   String?
+  latitude  Float
+  longitude Float
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users   User[]
+  hostels Hostel[]
+
+  @@index([city])
+  @@map("colleges")
+}
+
+// ---------------------------------------------------------------------------
+// Owners and verification
+// ---------------------------------------------------------------------------
+
+model Owner {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  legalName       String
+  businessName    String
+  contactPhone    String
+  contactEmail    String?
+  /// Plaintext PAN/GSTIN are deliberately not stored. These are kept only to
+  /// display the last 4 characters and to prove ownership during review.
+  panLast4        String?
+  gstin           String?
+  panHash         String?
+  bankAccountName String?
+  bankIfsc        String?
+  upiId           String?
+  /// Where payouts land. Filled once the owner completes onboarding.
+  payoutAccountRef String?
+
+  verificationStatus VerificationStatus @default(DRAFT)
+  verifiedAt         DateTime?
+  rejectionReason    String?
+
+  /// Per-owner commission override, in basis points of a percent (1500 = 15.00%).
+  /// Null means "use the active CommissionConfig". Applied at booking time and
+  /// snapshotted onto the booking so later config changes cannot rewrite history.
+  commissionOverrideBps Int?
+
+  ratingAverage Decimal? @db.Decimal(3, 2)
+  ratingCount   Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  hostels   Hostel[]
+  documents OwnerDocument[]
+
+  @@index([verificationStatus])
+  @@map("owners")
+}
+
+model OwnerDocument {
+  id     String       @id @default(cuid())
+  type   DocumentType
+  url    String
+  name   String?
+  status VerificationStatus @default(PENDING)
+
+  rejectionReason String?
+  reviewedAt      DateTime?
+
+  ownerId String
+  owner   Owner  @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  reviewedById String?
+  reviewedBy   User?   @relation("DocumentReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId, status])
+  @@map("owner_documents")
+}
+
+// ---------------------------------------------------------------------------
+// Inventory
+// ---------------------------------------------------------------------------
+
+model Hostel {
+  id      String @id @default(cuid())
+  ownerId String
+  owner   Owner  @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  name        String
+  slug        String   @unique
+  description String?
+  type        HostelType @default(HOSTEL)
+  gender      Gender     @default(MIXED)
+
+  addressLine String
+  area        String
+  city        String   @default("Hyderabad")
+  pincode     String?
+  latitude    Float
+  longitude   Float
+
+  /// Front-desk number a student calls on arrival. Defaults to the owner's
+  /// registered mobile so a property cannot be listed without a reachable number.
+  contactPhone String?
+
+  /// Free-text amenity keys, validated against a fixed list at the API layer.
+  amenities String[]
+  photos    String[]
+
+  foodIncluded     Boolean @default(false)
+  depositAmount    Int     @default(0)
+  /// Student-facing warning: how many days' notice a cancellation needs.
+  noticePeriodDays Int     @default(7)
+
+  /// College campus this hostel markets itself to. Search by college resolves to
+  /// hostels in this column, then ranks by real distance.
+  collegeId String?
+  college   College? @relation(fields: [collegeId], references: [id], onDelete: SetNull)
+
+  /// Only APPROVED + published hostels are visible to students. A draft is
+  /// invisible even to its owner in the public search.
+  verificationStatus VerificationStatus @default(PENDING)
+  published          Boolean             @default(false)
+  publishedAt        DateTime?
+
+  ratingAverage Decimal? @db.Decimal(3, 2)
+  ratingCount   Int       @default(0)
+  reviewCount   Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  roomTypes RoomType[]
+  bookings  Booking[]
+
+  @@index([verificationStatus, published])
+  @@index([collegeId])
+  @@index([city])
+  @@index([area])
+  @@map("hostels")
+}
+
+/// A sellable room configuration. Prices are per-bed, in paise.
+/// A zero/absent rate means that stay type is not offered at this property.
+model RoomType {
+  id       String @id @default(cuid())
+  hostelId String
+  hostel   Hostel @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+
+  name        String
+  sharingType SharingType
+  gender      Gender       @default(MIXED)
+
+  /// Monthly rate per bed, paise. Required — this is the primary listing price.
+  monthlyRent      Int
+  /// Per-day rate for a short stay of 1..29 days, paise.
+  shortStayDailyRent Int?
+  /// Per-day rate for a day stay, paise.
+  dayStayDailyRent   Int?
+  /// Per-bed security deposit, paise. Falls back to Hostel.depositAmount when null.
+  depositAmount Int?
+  /// Monthly food charge per bed, paise. Falls back to Hostel.foodIncluded.
+  foodCharges Int?
+
+  amenities String[]
+  photos    String[]
+
+  /// Beds below this count can be bulk-disabled by the owner without deleting
+  /// them, so historical bookings keep pointing at a real row.
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  beds     Bed[]
+  bookings Booking[]
+
+  @@index([hostelId, isActive])
+  @@map("room_types")
+}
+
+/// The unit of availability. One Bed row = one sellable, bookable position.
+/// Availability is therefore a property of a row that can be locked, not a
+/// counter that can drift out of step with the bookings made against it.
+model Bed {
+  id         String   @id @default(cuid())
+  roomTypeId String
+  roomType   RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+
+  /// Human label shown on the booking, e.g. "A-204-3" (block-floor-bed).
+  label    String
+  floorLabel String?
+  status   BedStatus @default(AVAILABLE)
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookings Booking[]
+
+  @@unique([roomTypeId, label])
+  @@index([roomTypeId, status, isActive])
+  @@map("beds")
+}
+
+// ---------------------------------------------------------------------------
+// Commission
+// ---------------------------------------------------------------------------
+
+/// Commission is configured as a time-bounded global rate. Bookings snapshot the
+/// percentage that applied, so editing a config never retroactively changes what
+/// an owner was paid.
+model CommissionConfig {
+  id String @id @default(cuid())
+
+  /// Basis points of a percent: 1000 = 10.00%. Int, so no rounding drift.
+  percentageBps Int
+
+  /// Human label for the admin panel, e.g. "Default 2026".
+  label String
+
+  effectiveFrom DateTime  @default(now())
+  effectiveTo   DateTime?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([effectiveFrom, effectiveTo])
+  @@map("commission_configs")
+}
+
+// ---------------------------------------------------------------------------
+// Booking
+// ---------------------------------------------------------------------------
+
+model Booking {
+  id String @id @default(cuid())
+
+  /// Public reference shown to students and owners, e.g. "HM-7GQK2M4X".
+  /// Separate from the cuid so the internal id never leaks into URLs.
+  bookingRef String @unique
+
+  studentId String
+  student   User   @relation(fields: [studentId], references: [id], onDelete: Restrict)
+
+  hostelId String
+  hostel   Hostel @relation(fields: [hostelId], references: [id], onDelete: Restrict)
+
+  roomTypeId String
+  roomType   RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Restrict)
+
+  bedId String
+  bed   Bed   @relation(fields: [bedId], references: [id], onDelete: Restrict)
+
+  ownerId String
+
+  stayType StayType
+
+  checkIn  DateTime
+  checkOut DateTime
+
+  /// Derived, stored so pricing is reproducible from the row alone.
+  months  Int @default(0)
+  days    Int @default(0)
+
+  // ---- Money breakdown, all paise. The sum below must equal totalAmount. ----
+  baseRent          Int
+  foodCharges       Int @default(0)
+  depositAmount     Int @default(0)
+  serviceFee        Int @default(0)
+  taxes             Int @default(0)
+  discountAmount    Int @default(0)
+
+  /// Platform commission retained from baseRent + foodCharges.
+  commissionAmount  Int  @default(0)
+  /// Snapshot of the rate that produced commissionAmount, in bps.
+  commissionRateBps Int  @default(0)
+
+  /// What the owner receives: everything the student paid except deposit,
+  /// commission and platform service fee.
+  ownerPayout Int @default(0)
+
+  /// baseRent + foodCharges + deposit + serviceFee + taxes - discountAmount
+  totalAmount Int
+
+  status BookingStatus @default(PENDING_PAYMENT)
+
+  /// Deposit is held against the room and is refunded on checkout. It is not
+  /// revenue and is never included in ownerPayout.
+  depositSettledAt DateTime?
+  depositRefundedAt DateTime?
+
+  cancelReason     String?
+  cancelledAt      DateTime?
+
+  /// Set when the booking blocks a bed; cleared when the booking stops holding it.
+  /// A bed is held for PENDING_PAYMENT and PENDING_OWNER, released on reject,
+  /// cancel, payment failure or expiry.
+  heldUntil DateTime?
+
+  notes String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  confirmedAt DateTime?
+
+  payment       Payment?
+  statusHistory BookingStatusEvent[]
+
+  @@index([studentId, status])
+  @@index([hostelId, checkIn, checkOut])
+  @@index([bedId, checkIn, checkOut])
+  @@index([ownerId, status])
+  @@index([status, createdAt])
+  @@map("bookings")
+}
+
+/// Append-only audit trail. Booking status is money-bearing, so every transition
+/// is recorded with who caused it.
+model BookingStatusEvent {
+  id        String        @id @default(cuid())
+  bookingId String
+  booking   Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  fromStatus BookingStatus?
+  toStatus   BookingStatus
+
+  /// STUDENT | OWNER | ADMIN | SYSTEM
+  actorRole String
+  actorId   String?
+  reason    String?
+
+  createdAt DateTime @default(now())
+
+  @@index([bookingId, createdAt])
+  @@map("booking_status_events")
+}
+
+model Payment {
+  id        String @id @default(cuid())
+  bookingId String @unique
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  provider PaymentProvider @default(MOCK)
+
+  /// Our order id handed to the gateway.
+  providerOrderId String @unique
+  /// Gateway payment id, present only once money actually moved.
+  providerPaymentId String?
+
+  /// Total captured from the student, paise (includes deposit).
+  amount Int
+
+  status PaymentStatus @default(CREATED)
+
+  method String?
+
+  failureCode    String?
+  failureMessage String?
+
+  /// Commission taken at capture time, paise. Stored so settlement reports need
+  /// no join back into mutable config.
+  commissionAmount Int @default(0)
+
+  /// Raw gateway payload, retained for reconciliation and dispute handling.
+  providerPayload Json?
+
+  capturedAt DateTime?
+  refundedAt DateTime?
+  refundAmount Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@map("payments")
+}
+
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id      String @id @default(cuid())
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title String
+  body  String
+
+  /// Deep-link payload, e.g. { "type": "BOOKING_CONFIRMED", "bookingRef": "..." }.
+  data Json?
+
+  channels NotificationChannel[] @default([IN_APP])
+
+  readAt      DateTime?
+  /// Set when a push send failed, so a retry worker can pick it up.
+  pushFailedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, readAt, createdAt])
+  @@map("notifications")
+}

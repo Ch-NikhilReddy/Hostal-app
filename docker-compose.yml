@@ -1,0 +1,22 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: hostelmitra-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-hostelmitra}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hostelmitra}
+      POSTGRES_DB: ${POSTGRES_DB:-hostelmitra}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - hostelmitra-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-hostelmitra} -d ${POSTGRES_DB:-hostelmitra}']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+volumes:
+  hostelmitra-pgdata:

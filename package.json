@@ -1,0 +1,36 @@
+{
+  "name": "hostelmitra",
+  "version": "0.1.0",
+  "private": true,
+  "description": "HostelMitra - Student Hostel / PG booking platform for Hyderabad",
+  "license": "UNLICENSED",
+  "workspaces": [
+    "api",
+    "app",
+    "web"
+  ],
+  "scripts": {
+    "db:up": "docker compose up -d --wait",
+    "db:down": "docker compose down",
+    "db:reset": "docker compose down -v && docker compose up -d --wait",
+    "db:migrate": "npm run db:push --workspace api",
+    "db:generate": "npm run db:generate --workspace api",
+    "db:seed": "npm run db:seed --workspace api",
+    "api": "npm run dev --workspace api",
+    "app": "npm run start --workspace app",
+    "web": "npm run dev --workspace web",
+    "test": "npm run test --workspace api",
+    "test:smoke": "node scripts/smoke-test.mjs",
+    "verify": "npm run typecheck --workspace api && npm run test --workspace api",
+    "typecheck": "npm run typecheck --workspace api && npm run typecheck --workspace app"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "allowScripts": {
+    "prisma": true,
+    "@prisma/client": true,
+    "@prisma/engines": true,
+    "esbuild": true
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "HostelMitra",
+    "slug": "hostelmitra",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "hostelmitra",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#0F766E",
+      "resizeMode": "contain"
+    },
+    "android": {
+      "package": "com.hostelmitra.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#0F766E"
+      },
+      "permissions": [
+        "android.permission.INTERNET"
+      ]
+    },
+    "ios": {
+      "bundleIdentifier": "com.hostelmitra.app",
+      "supportsTablet": true
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static"
+    },
+    "plugins": ["expo-router", "expo-secure-store"],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
