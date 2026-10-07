@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import express, { type Express } from 'express';
-import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import { config } from './config.js';
+import { buildCorsPolicy, corsGuard } from './lib/cors.js';
 import { prisma } from './db.js';
 import { errorHandler, notFoundHandler } from './lib/errors.js';
 import { authRouter } from './modules/auth.routes.js';
@@ -29,12 +29,26 @@ export function createApp(): Express {
     }),
   );
 
-  app.use(
-    cors({
-      origin: config.isProduction ? (process.env.CORS_ORIGINS ?? '').split(',').filter(Boolean) : true,
-      credentials: true,
-    }),
-  );
+  // ---- CORS ----------------------------------------------------------------
+  // Fail-closed. An origin is trusted only when CORS_ORIGINS names it; a missing
+  // or malformed value refuses startup in production rather than falling back to
+  // "allow everything". See lib/cors.ts for the full rationale.
+  //
+  // buildCorsPolicy throws for an empty or wildcard production list, so a
+  // misconfigured deploy stops here rather than becoming publicly readable.
+  const corsPolicy = buildCorsPolicy(process.env.CORS_ORIGINS, config.isProduction);
+
+  app.use(corsGuard(corsPolicy));
+  app.set('corsPolicy', corsPolicy);
+
+  // Vary is required even though the same headers are set for every origin: a
+  // shared cache must not reuse one origin's response for another. Only set it
+  // when an Origin was actually sent, so a native client gets no CORS headers at
+  // all.
+  app.use((req, res, next) => {
+    if (req.headers.origin) res.vary('Origin');
+    next();
+  });
 
   if (!config.isTest) {
     app.use(morgan(config.isProduction ? 'combined' : 'dev'));
