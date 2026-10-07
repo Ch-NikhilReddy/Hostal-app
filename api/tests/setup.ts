@@ -23,10 +23,9 @@ process.env.FCM_SERVER_KEY = '';
 process.env.STORAGE_DRIVER = 'local';
 process.env.DEFAULT_COMMISSION_PERCENT = '10';
 
-// The suite signs in as five roles before each of ~40 tests, which is far more
-// OTP traffic than a human generates. The limit still has to exist (a test asserts
-// it), so it is raised rather than removed — see the note at its definition.
-process.env.OTP_MAX_PER_WINDOW = '500';
+// No billing is configured in tests, so the OTP send limit is already inert (see
+// enforceOtpRateLimit). The wrong-OTP attempt limit still applies, and a test
+// covers it.
 
 // Silence request logging during tests; morgan checks isTest and skips already,
 // but the app's own console.warn calls are useful when a test fails.

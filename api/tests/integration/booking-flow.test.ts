@@ -247,6 +247,23 @@ describe('auth', () => {
     expect(res.body.error.code).toBe('VALIDATION_FAILED');
   });
 
+  it('burns a code after too many wrong attempts', async () => {
+    const phone = '9765432109';
+    const req = await request(app).post('/v1/auth/otp/request').send({ phone });
+    const wrongCode = req.body.devOtp === '000000' ? '111111' : '000000';
+
+    // The per-code attempt cap must hold regardless of whether SMS is billed.
+    for (let i = 0; i < 5; i += 1) {
+      await request(app).post('/v1/auth/otp/verify').send({ phone, code: wrongCode });
+    }
+
+    const blocked = await request(app)
+      .post('/v1/auth/otp/verify')
+      .send({ phone, code: req.body.devOtp });
+
+    expect(blocked.status).toBe(429);
+  });
+
   it('rejects an unauthenticated request to a protected route', async () => {
     const res = await request(app).get('/v1/auth/me');
     expect(res.status).toBe(401);

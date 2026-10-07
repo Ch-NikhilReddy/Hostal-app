@@ -216,7 +216,10 @@ See `.env.example`. The ones that change behaviour:
 | `OTP_PROVIDER` | `console` | `console` prints OTPs; production refuses to boot on it without an explicit override |
 | `STORAGE_DRIVER` | `local` | `local` writes photos to `var/uploads`; `s3` is stubbed |
 | `DEFAULT_COMMISSION_PERCENT` | `10` | fallback when no `CommissionConfig` exists |
-| `OTP_MAX_PER_WINDOW` | `3` | OTP sends per phone per 10 minutes |
+| `OTP_MAX_PER_WINDOW` | `3` | OTP sends per phone per 10 minutes. Only enforced when an SMS provider is configured — there are no credits to protect when codes are printed to the console |
+
+The wrong-code attempt limit (5 per issued code) always applies, whatever the SMS
+provider, because that one protects the account rather than the budget.
 
 ---
 
@@ -236,8 +239,10 @@ reads as working when it does not.
   money back is a separate, deliberate accounting step that is not implemented.
 - **Google Maps.** No map view. Distance and travel time are computed server-side,
   so search results are correct, but there is no map to look at.
-- **OTP rate limiting is in-process.** It resets on restart and does not
-  coordinate across replicas. It must move to Redis before a second instance runs.
+- **OTP send-rate limiting is in-process.** It resets on restart and does not
+  coordinate across replicas, so it must move to Redis before a second instance
+  runs. It is only enforced when a billed SMS provider is configured. The
+  per-code wrong-attempt limit is enforced regardless.
 - **Owner profile editing.** Owners can review and publish, but adding and editing
   properties is API-only in this build.
 

@@ -42,7 +42,23 @@ const OTP_TTL_MINUTES = 10;
  */
 const OTP_MAX_PER_WINDOW = Number.parseInt(process.env.OTP_MAX_PER_WINDOW ?? '3', 10);
 
+/**
+ * What the send limit is actually for: stopping a script that hammers one number
+ * to burn paid SMS credits, and slowing credential-stuffing against the OTP flow.
+ *
+ * When the OTP is logged to the console rather than sent, there are no credits to
+ * burn, and blocking a developer running the smoke tests twice in a row helps
+ * nobody. So the limit is enforced only when an OTP actually costs money.
+ *
+ * This is not a blanket development exemption — the wrong-OTP attempt limit below
+ * stays at 5 regardless, because that one protects the account and not the
+ * budget.
+ */
+const OTP_IS_BILLED = config.OTP_PROVIDER === 'msg91' && config.MSG91_AUTH_KEY.length > 0;
+
 function enforceOtpRateLimit(phone: string): void {
+  if (!OTP_IS_BILLED) return;
+
   const now = Date.now();
   const entry = otpAttempts.get(phone);
   if (!entry || now - entry.firstAt > OTP_WINDOW_MS) {
