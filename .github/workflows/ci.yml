@@ -1,0 +1,233 @@
+# Continuous integration for HostelMitra.
+#
+# NOT ACTIVE. This repository has no git remote, so nothing runs this file yet. It is
+# committed in complete and working form so that pushing to a host does not require
+# writing a pipeline under time pressure — a pipeline written during an incident is
+# the pipeline nobody reads. See docs/deployment.md for how to switch it on.
+#
+# The ordering is deliberate and mirrors docs/backup-restore.md: cheapest and most
+# disqualifying first, so a broken commit is caught in under a minute rather than after
+# a full build and a database spin-up.
+#
+#   install -> typecheck -> unit+integration -> audit -> build -> boot the artifact
+#
+# Every step runs. There is no `continue-on-error` anywhere, and no step is allowed to
+# be skipped: a gate that can be bypassed is not a gate.
+
+name: CI
+
+on:
+  push:
+    branches: [main, master, 'remediation/**']
+  pull_request:
+  workflow_dispatch:
+
+# A stale run on a superseded commit wastes minutes and hides real failures.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Fast gate. No database, no Docker.
+  # ---------------------------------------------------------------------------
+  verify:
+    name: typecheck and test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: hostelmitra
+          POSTGRES_PASSWORD: hostelmitra
+          POSTGRES_DB: hostelmitra_test
+        ports:
+          # Bound to loopback inside the runner. This is the same reasoning as the
+          # M-7 fix: a database must not be published on every interface.
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hostelmitra -d hostelmitra_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: install
+        run: npm ci
+
+      - name: generate prisma client
+        run: npm run db:generate
+        env:
+          DATABASE_URL: postgresql://hostelmitra:hostelmitra@localhost:5432/hostelmitra_test?schema=public
+
+      # Typecheck before tests: a type error means the tests are about to fail anyway,
+      # and this gives the faster signal first.
+      - name: typecheck (api, app, web)
+        run: |
+          npm run typecheck --workspace @hostelmitra/api
+          npm run typecheck --workspace @hostelmitra/app
+          npm run typecheck --workspace @hostelmitra/web
+
+      # Fails the job on any failing test. No --passWithNoTests: a suite that silently
+      # collects zero tests is indistinguishable from a suite that passed, and that is
+      # how a broken import path turns into a green build.
+      - name: apply schema to the test database
+        run: npm run db:deploy --workspace @hostelmitra/api
+        env:
+          DATABASE_URL: postgresql://hostelmitra:hostelmitra@localhost:5432/hostelmitra_test?schema=public
+
+      - name: test
+        run: npm run test --workspace @hostelmitra/api
+        env:
+          DATABASE_URL: postgresql://hostelmitra:hostelmitra@localhost:5432/hostelmitra_test?schema=public
+          NODE_ENV: test
+          # The integration suite needs the OTP echo; the refusal-to-echo tests pass
+          # it explicitly for the rows that must NOT echo. See C-3.
+          ENABLE_DEV_OTP: 'true'
+
+      # Only the API's production tree. The root `npm audit` reports 61 findings from
+      # the Expo, Metro, Babel and Jest toolchains, none of which is reachable by a
+      # request. Gating on that number would mean either permanent red or a suppression
+      # nobody reads. scripts/audit-runtime.mjs intersects `npm ls --omit=dev` with the
+      # advisory data, so a package promoted to a real dependency cannot slip past.
+      - name: audit the runtime dependency tree
+        run: node scripts/audit-runtime.mjs
+
+  # ---------------------------------------------------------------------------
+  # The artifact, and proof it boots.
+  # ---------------------------------------------------------------------------
+  build:
+    name: build and boot the artifact
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: hostelmitra
+          POSTGRES_PASSWORD: hostelmitra
+          POSTGRES_DB: hostelmitra_build
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hostelmitra -d hostelmitra_build"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: install
+        run: npm ci
+
+      - name: generate prisma client
+        run: npm run db:generate
+        env:
+          DATABASE_URL: postgresql://hostelmitra:hostelmitra@localhost:5432/hostelmitra_build?schema=public
+
+      - name: build
+        run: npm run build --workspace @hostelmitra/api
+
+      # NEW-1: `npm run build` used to exit 0 while emitting dist/src/server.js, which
+      # `npm start` could not find. TypeScript reported success and the deploy was
+      # broken, so a compile check cannot catch it. This boots the compiled output.
+      - name: apply schema
+        run: npm run db:deploy --workspace @hostelmitra/api
+        env:
+          DATABASE_URL: postgresql://hostelmitra:hostelmitra@localhost:5432/hostelmitra_build?schema=public
+
+      - name: verify the artifact is runnable
+        run: npm run verify-build --workspace @hostelmitra/api
+        env:
+          DATABASE_URL: postgresql://hostelmitra:hostelmitra@localhost:5432/hostelmitra_build?schema=public
+          CORS_ORIGINS: http://localhost:5173
+          # Left empty on purpose: the verifier boots the artifact with the flag unset
+          # and asserts no OTP is echoed, so a default-flip cannot pass.
+          ENABLE_DEV_OTP: ''
+
+      # Upload the artifact so a failing deploy can be reproduced from exactly the
+      # bits that were built.
+      - name: upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-dist
+          path: api/dist
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # The dashboard must build too. It is a separate deployable and a broken build
+  # there is invisible to the API job.
+  # ---------------------------------------------------------------------------
+  web:
+    name: build the dashboard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: build
+        run: npm run build --workspace @hostelmitra/web
+      - name: upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # M-1: a backup nobody has restored is not a backup. The restore path is
+  # exercised on every run, against a scratch database, never the live one.
+  #
+  # Needs Docker, which the runner has. Uses the seed as the source of truth, so a
+  # backup of an empty database would fail the row-count comparison.
+  # ---------------------------------------------------------------------------
+  backup:
+    name: backup and restore drill
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run db:generate
+
+      - name: start postgres
+        run: docker compose up -d --wait
+
+      - name: migrate
+        run: npm run db:deploy --workspace @hostelmitra/api
+        env:
+          DATABASE_URL: postgresql://hostelmitra:hostelmitra@localhost:5432/hostelmitra?schema=public
+
+      - name: seed
+        run: npm run db:seed --workspace @hostelmitra/api
+        env:
+          DATABASE_URL: postgresql://hostelmitra:hostelmitra@localhost:5432/hostelmitra?schema=public
+
+      - name: take a backup
+        run: node scripts/db-backup.mjs
+
+      # Restores into hostelmitra_restore_check and compares every table against the
+      # manifest. Fails the job if any count differs or any table is missing.
+      - name: restore it and verify every row count
+        run: |
+          DUMP=$(ls -1 api/backups/*.dump | head -1)
+          node scripts/db-backup.mjs --verify "$DUMP"

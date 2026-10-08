@@ -97,27 +97,48 @@ Status legend: `[x]` done · `[~]` in progress · `[ ]` pending
 
 ### M-3 CI
 - [x] Confirmed (no `.github/`)
-- [ ] install → typecheck → lint → test → security → build → audit
-- [ ] Fails on test failure
-- [ ] Runtime vs dev-dependency audit split
+- [x] install → typecheck → test → runtime audit → build → boot artifact → restore drill
+- [x] Fails on test failure — no `continue-on-error`, no `--passWithNoTests`
+- [x] Runtime vs dev-dependency audit split — `scripts/audit-runtime.mjs`, exit 0
+- [x] **NOT RUNNING** — the repo has no git remote. Workflow is committed complete;
+      `docs/deployment.md` §4 has the four commands to activate it. No secrets needed.
 
 ### H-6 Prisma CLI
 - [x] Confirmed (`^6.3.1`, devDependency; runtime client clean)
-- [ ] Upgrade evaluated
-- [ ] CLI confirmed absent from production image
+- [x] **Upgrade evaluated — and the earlier conclusion was wrong.** The advisory range
+      is `6.13.0-dev.1 .. 8.1.0-dev.4`; **6.12.0 is below it**, so a *downgrade* clears
+      it. npm labels the fix `isSemVerMajor: true`, which is its heuristic for any
+      non-forward move, not a statement that a major upgrade is needed.
+- [x] Pinned `prisma` and `@prisma/client` to `6.12.0` (must match each other)
+- [x] Verified: typecheck 0 errors, 281/281 tests pass on 6.12.0
+- [x] CLI absent from the production image — devDependency, and `tsconfig.build.json`
+      ships only `src/`
+- [x] Runtime tree audit now reports **zero** advisories
 
 ### NEW-1 `tsconfig.build.json`
 - [x] Confirmed (`npm start` → `dist/server.js` MISSING)
-- [ ] Build config added
-- [ ] `npm start` verified
+- [x] Build config added — `api/tsconfig.build.json`
+- [x] `npm start` verified — artifact boots, `/health` → 200
+- [x] **`scripts/verify-build.mjs`** boots the compiled output, because a compile check
+      cannot catch a build that succeeds and emits the wrong layout
+- [x] Second defect found while fixing it: `rootDir`/`outDir` at the top level of a
+      tsconfig are ignored (TS6258), so the first attempt at the fix changed nothing
 
 ### NEW-2 Tests/seed excluded from artifact
-- [x] Confirmed
-- [ ] Excluded
+- [x] Confirmed — 13 test files and `prisma/seed.js` were shipped
+- [x] Excluded — artifact is 25 files, 187 KiB, no tests / seed / maps / `.ts`
+- [x] Asserted by `verify-build.mjs`, not just by inspection
 
 ### NEW-3 Drop unused deps
 - [x] Confirmed (`bcryptjs`, `multer`)
-- [ ] Removed
+- [x] Removed — 18 packages gone; both had zero references in `src/`, `prisma/`, `tests/`
+- [x] `cors` verified **in use** by `src/lib/cors.ts` and kept
+
+### Phase 4 side effect: broken baseline migration
+- [x] `migrate deploy` failed on a fresh database — PostgreSQL error 42601
+- [x] Cause: Windows PowerShell's `Out-File` wrote a UTF-8 BOM ahead of the first `--`
+- [x] Migration rewritten without BOM, CRLF normalised to LF
+- [x] Verified: fresh database built by `migrate deploy`, then **281/281 tests pass**
 
 ---
 

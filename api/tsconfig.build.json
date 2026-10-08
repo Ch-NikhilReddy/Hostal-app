@@ -1,0 +1,37 @@
+// Build config for the production artifact.
+//
+// Differs from tsconfig.json in three ways, each fixing a real defect. See NEW-1 and
+// NEW-2 in docs/remediation-checklist.md.
+//
+//   rootDir: src   — was "." with include covering tests/ and prisma/, so tsc
+//                     preserved the src/ prefix and emitted dist/src/server.js while
+//                     `npm start` ran node dist/server.js. The build exited 0 and the
+//                     deploy was broken, which is worse than a build that fails.
+//   include: src   — was src + tests + prisma, which compiled 13 test files and the
+//                     database seed into the artifact, seeded admin phone included.
+//   sourceMap: off — a source map beside a deployed .js hands over the original source.
+
+{
+  "extends": "./tsconfig.json",
+
+  "include": ["src/**/*.ts"],
+
+  // Redundant given `include` above, and kept deliberately: it documents the intent
+  // and it survives someone widening `include` later without thinking.
+  "exclude": ["node_modules", "dist", "tests", "prisma", "scripts"],
+
+  "compilerOptions": {
+    // Must live inside compilerOptions. At the top level TypeScript reports TS6258
+    // and silently uses the inherited value, which is how a "fixed" build config can
+    // keep producing the old broken layout.
+    "rootDir": "src",
+    "outDir": "dist",
+
+    // A source map beside a deployed .js file gives an attacker the original source.
+    // It is a debugging aid, not a production requirement.
+    "sourceMap": false,
+
+    // Nothing consumes this package as a library.
+    "declaration": false
+  }
+}
