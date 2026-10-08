@@ -47,18 +47,23 @@ Status legend: `[x]` done · `[~]` in progress · `[ ]` pending
 - [x] DRAFT and PENDING deliberately still allowed (blocking them deadlocks onboarding)
 - [x] Live probe — `probe-owner-status.mjs` 21/21 against the running API
 - [x] Diff reviewed
+- [x] **§7 decision taken**: rejected owners keep read-only access to
+      `GET /verification` so the admin's rejection reason stays reachable.
+      One route, own record only, `canPublish` still false. Deviation from the
+      original spec, deliberate, reversible in `owner.routes.ts`.
 
 ### H-2 `requireAuth` checks `isActive`
 - [x] Confirmed (`/v1/auth/me` → 200 after deactivation)
-- [ ] Fixed
-- [ ] Tests
-- [ ] Live probe
-- [ ] Diff reviewed
+- [x] Fixed — `requireAuth` reads the user row; `requireRole` reuses it (no 2nd query)
+- [x] Deleted account → 401 `ACCOUNT_NOT_FOUND`; deactivated → 403 `ACCOUNT_DISABLED`
+- [x] Tests (13) — auth/me, notifications, owner, booking, admin + misordered-chain guard
+- [x] Live probe — `probe-session-revocation.mjs` 12/12
+- [x] Diff reviewed
 
 ### H-3 Role-in-JWT semantics documented
 - [x] Confirmed
-- [ ] Documented
-- [ ] Tests
+- [x] Documented — `docs/security-model.md` §1.2
+- [x] Tests — promotion/demotion behaviour pinned in `session-revocation.test.ts`
 
 ---
 

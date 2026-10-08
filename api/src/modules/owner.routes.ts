@@ -75,6 +75,38 @@ async function requireOwner(auth: { sub: string; ownerId?: string }) {
   return owner;
 }
 
+/**
+ * Load the caller WITHOUT the standing check, for the one route a rejected owner
+ * must still be able to open.
+ *
+ * GET /verification is the only owner-facing route that returns `rejectionReason`,
+ * and the admin cannot reject without supplying one ("Give a reason so the owner
+ * knows what to fix"). Blocking it made the platform's own rejection message
+ * unreachable: a rejected owner saw a bare 403 and could never learn what to fix.
+ *
+ * The scope is deliberately one read-only route about the owner's OWN record. It
+ * grants no capability — not publishing, not editing, not responding to bookings —
+ * and it deliberately still refuses SUSPENDED owners, whose problem is not a
+ * document to fix.
+ *
+ * See requireOwner for the check this bypasses.
+ */
+async function requireOwnerForRead(auth: { sub: string; ownerId?: string }) {
+  const byId = auth.ownerId ? await prisma.owner.findUnique({ where: { id: auth.ownerId } }) : null;
+  const owner = byId ?? (await prisma.owner.findUnique({ where: { userId: auth.sub } }));
+
+  if (!owner) {
+    throw AppError.internal('Your owner account is incomplete. Please contact support.');
+  }
+  if (owner.verificationStatus === VerificationStatus.SUSPENDED) {
+    throw AppError.forbidden(
+      'Your owner account is suspended. Please contact support.',
+      'OWNER_NOT_IN_GOOD_STANDING',
+    );
+  }
+  return owner;
+}
+
 function slugify(input: string): string {
   return input
     .toLowerCase()
@@ -136,7 +168,9 @@ ownerRouter.post(
 ownerRouter.get(
   '/verification',
   asyncHandler(async (req: Request, res) => {
-    const owner = await requireOwner((req as AuthedRequest).auth);
+    // Read-only and about the caller's own record, so a REJECTED owner may still see
+    // why. See requireOwnerForRead.
+    const owner = await requireOwnerForRead((req as AuthedRequest).auth);
 
     const [documents, hostels] = await Promise.all([
       prisma.ownerDocument.findMany({

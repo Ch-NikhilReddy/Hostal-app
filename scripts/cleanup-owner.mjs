@@ -11,10 +11,13 @@
  * Exits 0 whether or not the owner existed; a leftover row is not a probe failure.
  */
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const { prisma } = await import(path.join(repoRoot, 'api', 'src', 'db.ts'));
+
+// pathToFileURL, not path.join: a bare "C:\..." string is not a valid ESM specifier
+// on Windows and Node rejects it outright.
+const { prisma } = await import(pathToFileURL(path.join(repoRoot, 'api', 'src', 'db.ts')).href);
 
 const ownerId = process.argv[2];
 if (!ownerId) {

@@ -89,6 +89,23 @@ export function generateOtp(): string {
 
 export type AuthedRequest = Request & {
   auth: AccessTokenClaims;
+  /**
+   * The caller's row as it exists RIGHT NOW, loaded by requireAuth.
+   *
+   * Deliberately not the token claims. The token is a snapshot from up to
+   * JWT_ACCESS_TTL ago and cannot be withdrawn, so anything an operator can change
+   * about an account has to be read fresh or it stays true for the rest of the
+   * token's life. requireRole reuses this row rather than issuing a second query,
+   * so the check costs one read per request, not two.
+   */
+  user: AuthenticatedUser;
+};
+
+/** The columns of User that authorisation depends on. Deliberately minimal. */
+export type AuthenticatedUser = {
+  id: string;
+  role: Role;
+  isActive: boolean;
 };
 
 function bearerFrom(req: Request): string | null {
@@ -99,15 +116,48 @@ function bearerFrom(req: Request): string | null {
   return token.trim();
 }
 
-/** Require any signed-in user. Attaches `req.auth`. */
-export function requireAuth(req: Request, _res: Response, next: NextFunction): void {
+/**
+ * Require any signed-in user whose account is still usable. Attaches `req.auth` and
+ * `req.user`.
+ *
+ * The database read is the point of this function, not an optimisation to avoid.
+ * It previously verified the signature and nothing else, so a deactivated or
+ * deleted account kept working for anyone still holding its token: GET
+ * /v1/auth/me answered 200 after an admin set isActive = false. No code path could
+ * revoke an access token early — signing out dropped only the refresh token, and
+ * the 15-minute access token kept being accepted the whole time.
+ *
+ * It is one indexed primary-key read. requireRole used to perform the same read, so
+ * owner, admin and booking routes are unchanged in cost; routes that used
+ * requireAuth on its own now pay it for the first time, which is the entire fix.
+ */
+export async function requireAuth(req: Request, _res: Response, next: NextFunction): Promise<void> {
   const token = bearerFrom(req);
   if (!token) {
     next(AppError.unauthorized());
     return;
   }
   try {
-    (req as AuthedRequest).auth = verifyAccessToken(token);
+    const auth = verifyAccessToken(token);
+
+    const user = await prisma.user.findUnique({
+      where: { id: auth.sub },
+      select: { id: true, role: true, isActive: true },
+    });
+
+    // A valid signature for a user that no longer exists means the row was deleted
+    // while the token was live. Treat it as unauthenticated rather than letting the
+    // request through to fail somewhere less obvious.
+    if (!user) {
+      throw AppError.unauthorized('Your session is no longer valid.', 'ACCOUNT_NOT_FOUND');
+    }
+    if (!user.isActive) {
+      throw AppError.forbidden('This account has been deactivated.', 'ACCOUNT_DISABLED');
+    }
+
+    const authed = req as AuthedRequest;
+    authed.auth = auth;
+    authed.user = user;
     next();
   } catch (err) {
     next(err);
@@ -119,12 +169,23 @@ export function requireAuth(req: Request, _res: Response, next: NextFunction): v
  *
  * A deactivated account is rejected even with a valid token, otherwise a student
  * who deleted their account keeps full access until the 15-minute token expires.
+ *
+ * The isActive check itself lives in requireAuth and is inherited from `req.user`;
+ * this adds only the role test, so no extra query is issued here.
+ *
+ * REQUIRES requireAuth to have run first. If `req.user` is absent the chain is
+ * misordered, and that is treated as unauthenticated rather than allowed through —
+ * a wiring mistake must fail closed.
+ *
+ * The role compared here is the one in the TOKEN, not the database. That is a known
+ * and accepted trade-off, documented in docs/security-model.md: a demotion takes
+ * effect when the token is refreshed, not before.
  */
 export function requireRole(...roles: Role[]) {
-  return async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
+  return (req: Request, _res: Response, next: NextFunction): void => {
     try {
-      const auth = (req as AuthedRequest).auth;
-      if (!auth) {
+      const { auth, user } = req as AuthedRequest;
+      if (!auth || !user) {
         throw AppError.unauthorized();
       }
       if (!roles.includes(auth.role)) {
@@ -132,13 +193,6 @@ export function requireRole(...roles: Role[]) {
           `This action requires ${roles.join(' or ').toLowerCase()} access.`,
           'INSUFFICIENT_ROLE',
         );
-      }
-      const user = await prisma.user.findUnique({
-        where: { id: auth.sub },
-        select: { isActive: true },
-      });
-      if (!user?.isActive) {
-        throw AppError.forbidden('This account has been deactivated.', 'ACCOUNT_DISABLED');
       }
       next();
     } catch (err) {

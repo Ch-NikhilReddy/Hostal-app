@@ -187,6 +187,93 @@ describe('H-1 — suspended and rejected owners are refused', () => {
   });
 });
 
+describe('H-1 — a rejected owner can still read WHY', () => {
+  // The admin cannot reject without giving a reason ("Give a reason so the owner
+  // knows what to fix"), so blocking the only route that returns it made the
+  // platform's own message unreachable. Verified before this carve-out: a REJECTED
+  // owner got 403 on every owner route including /verification.
+  it('a REJECTED owner can read GET /verification', async () => {
+    await prisma.owner.update({
+      where: { id: ownerId },
+      data: { verificationStatus: VerificationStatus.REJECTED, rejectionReason: 'PAN unreadable' },
+    });
+
+    const res = await request(app)
+      .get('/v1/owner/verification')
+      .set('Authorization', `Bearer ${ownerToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.verificationStatus).toBe('REJECTED');
+  });
+
+  it('...and the rejection reason is in it', async () => {
+    await prisma.owner.update({
+      where: { id: ownerId },
+      data: { verificationStatus: VerificationStatus.REJECTED, rejectionReason: 'PAN unreadable' },
+    });
+
+    const res = await request(app)
+      .get('/v1/owner/verification')
+      .set('Authorization', `Bearer ${ownerToken}`);
+
+    expect(res.body.rejectionReason).toBe('PAN unreadable');
+  });
+
+  it('...but it grants no capability: every mutation is still refused', async () => {
+    await prisma.owner.update({
+      where: { id: ownerId },
+      data: { verificationStatus: VerificationStatus.REJECTED, rejectionReason: 'PAN unreadable' },
+    });
+
+    const create = await request(app)
+      .post('/v1/owner/hostels')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({
+        name: `H1 Rejected Wrote ${RUN}`,
+        addressLine: '6 Rejected Write Road',
+        area: 'Kukatpally',
+        latitude: 17.322,
+        longitude: 78.2337,
+      });
+    expect(create.status).toBe(403);
+
+    // The read carve-out must not leak another owner's data, and must not report
+    // the owner as able to publish.
+    const res = await request(app)
+      .get('/v1/owner/verification')
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(res.body.canPublish).toBe(false);
+    expect(res.body.hostels.every((h: { ownerId?: string }) => !h.ownerId || h.ownerId === ownerId)).toBe(true);
+  });
+
+  it('a SUSPENDED owner still cannot read /verification', async () => {
+    // Suspending is not a document problem, so the carve-out does not apply. A
+    // suspended owner must contact support, which is the intended outcome.
+    await prisma.owner.update({
+      where: { id: ownerId },
+      data: { verificationStatus: VerificationStatus.SUSPENDED, rejectionReason: 'PAN unreadable' },
+    });
+
+    const res = await request(app)
+      .get('/v1/owner/verification')
+      .set('Authorization', `Bearer ${ownerToken}`);
+
+    expect(res.status).toBe(403);
+  });
+
+  it('a rejected owner cannot read the dashboard or their property list', async () => {
+    await prisma.owner.update({
+      where: { id: ownerId },
+      data: { verificationStatus: VerificationStatus.REJECTED, rejectionReason: 'PAN unreadable' },
+    });
+
+    for (const path of ['/v1/owner/dashboard', '/v1/owner/hostels']) {
+      const res = await request(app).get(path).set('Authorization', `Bearer ${ownerToken}`);
+      expect(res.status, `${path} should be 403`).toBe(403);
+    }
+  });
+});
+
 describe('H-1 — owners in good standing are unaffected', () => {
   it('an APPROVED owner can still use every owner route', async () => {
     await setStatus(VerificationStatus.APPROVED);
