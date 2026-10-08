@@ -109,13 +109,18 @@ authRouter.post(
 
     await sendOtp(phone, code);
 
+    // Whether the code comes back in the response is decided once, in config.ts,
+    // from an explicit opt-in that defaults to false and is refused outright in
+    // production. It used to be `!isProduction`, so any environment that was not
+    // exactly NODE_ENV=production — a staging host, a typo, a missing variable —
+    // returned every login code to whoever asked for it.
+    //
+    // The response shape is otherwise identical either way, so a client cannot
+    // distinguish the two cases from the payload.
     res.json({
       ok: true,
       expiresInSeconds: OTP_TTL_MINUTES * 60,
-      // In development the code is echoed back so the flow is usable with no SMS
-      // provider configured. config.ts refuses to boot in production with this
-      // enabled, so this cannot leak in a live build.
-      ...(config.isProduction ? {} : { devOtp: code }),
+      ...(config.devOtpEnabled ? { devOtp: code } : {}),
     });
   }),
 );

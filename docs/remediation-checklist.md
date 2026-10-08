@@ -29,11 +29,12 @@ Status legend: `[x]` done · `[~]` in progress · `[ ]` pending
 - [x] Diff reviewed
 
 ### C-3 Explicit dev-OTP opt-in
-- [x] Confirmed live (`devOtp=953950` returned)
-- [ ] Fixed
-- [ ] Matrix tests — prod/staging/dev × flag
-- [ ] Live probe — `devOtp` absent by default
-- [ ] Diff reviewed
+- [x] Confirmed live (`devOtp=778616` returned)
+- [x] Fixed — `ENABLE_DEV_OTP`, default false, refused in production
+- [x] Matrix tests (10) — prod/staging/dev × flag
+- [x] Live probe — `probe-otp.mjs` 10/10, `probe-otp-default.mjs` 4/4
+- [x] `.env.example` default verified safe for a fresh clone
+- [x] Diff reviewed
 
 ---
 

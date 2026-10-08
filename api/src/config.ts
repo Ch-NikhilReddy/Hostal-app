@@ -22,8 +22,15 @@ for (const candidate of [path.resolve(here, '../.env'), path.resolve(here, '../.
 
 const bool = z
   .enum(['true', 'false', '1', '0'])
-  .default('false')
   .transform((v) => v === 'true' || v === '1');
+
+/** Boolean with an explicit default. Written as a function so the default is stated
+ *  once and reused, rather than repeated at each call site with a chance of drift. */
+const boolDefault = (fallback: boolean) =>
+  z.preprocess(
+    (v) => (v === undefined || v === '' ? String(fallback) : v),
+    bool,
+  );
 
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -46,6 +53,20 @@ const schema = z.object({
   OTP_PROVIDER: z.enum(['console', 'msg91']).default('console'),
   MSG91_AUTH_KEY: z.string().default(''),
   MSG91_SENDER_ID: z.string().default('HMTRIA'),
+
+  // C-3: echo the OTP back in the API response so a developer can sign in with no
+  // SMS provider configured.
+  //
+  // This used to be decided by `!isProduction`, which meant ANY environment that
+  // was not exactly NODE_ENV=production returned every OTP to whoever asked — a
+  // staging host, a typo, a missing variable. An attacker could POST a victim's
+  // phone number and read the code from the response, taking over the account
+  // without intercepting an SMS.
+  //
+  // Now it is an explicit opt-in that defaults to false, and it is refused
+  // outright in production regardless of what it is set to. Absence of the
+  // variable means no OTP is ever echoed.
+  ENABLE_DEV_OTP: boolDefault(false),
 
   FCM_SERVER_KEY: z.string().default(''),
 
@@ -99,6 +120,34 @@ if (env.NODE_ENV === 'production') {
         'or set ALLOW_CONSOLE_OTP_IN_PROD=1 deliberately for a private staging build.',
     );
   }
+
+  // C-3: the OTP echo is refused in production even if someone deliberately turns
+  // it on. This is the one control where "the operator asked for it" is not
+  // sufficient reason, because the consequence is that anyone can read any user's
+  // login code. Refusing to boot makes the mistake visible instead of silent.
+  if (env.ENABLE_DEV_OTP) {
+    throw new Error(
+      'Refusing to start: ENABLE_DEV_OTP must not be true in production. ' +
+        'It echoes every login code in the API response.',
+    );
+  }
+}
+
+// Loud, unmissable warning whenever the echo is live. A developer who has it on
+// must never be surprised by it later, and anyone reading the logs of a machine
+// with it enabled can see that fact.
+if (env.ENABLE_DEV_OTP && env.NODE_ENV !== 'production') {
+  console.warn(
+    '\n' +
+      '='.repeat(72) +
+      `\n  DEV OTP ECHO IS ENABLED (ENABLE_DEV_OTP=true, NODE_ENV=${env.NODE_ENV})` +
+      '\n  Every login code is being returned in the /v1/auth/otp/request response.' +
+      '\n  Anyone who can reach this API can sign in as any user.' +
+      '\n  Never set this on a shared, staging, or production host.' +
+      '\n' +
+      '='.repeat(72) +
+      '\n',
+  );
 }
 
 export const config = {
@@ -110,6 +159,14 @@ export const config = {
   paymentProvider: (env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET ? 'razorpay' : 'mock') as
     | 'razorpay'
     | 'mock',
+
+  /**
+   * Whether the OTP may be echoed in the response body.
+   *
+   * Computed once, here, so no route can re-derive this from NODE_ENV and get a
+   * different answer. Production can never enable it — see the check below.
+   */
+  devOtpEnabled: env.ENABLE_DEV_OTP && env.NODE_ENV !== 'production',
 
   /** Where uploaded photos end up. */
   storageDriver: env.STORAGE_DRIVER as 'local' | 's3',

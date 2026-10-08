@@ -23,6 +23,13 @@ process.env.FCM_SERVER_KEY = '';
 process.env.STORAGE_DRIVER = 'local';
 process.env.DEFAULT_COMMISSION_PERCENT = '10';
 
+// The integration suite signs in through the real HTTP routes and has no way to
+// read a code that was only printed to a console, so it opts into the echo
+// explicitly — exactly as a developer would on a laptop. This is the control
+// working as designed: the flag is now required, rather than happening to be on
+// because NODE_ENV was not "production".
+process.env.ENABLE_DEV_OTP = 'true';
+
 // No billing is configured in tests, so the OTP send limit is already inert (see
 // enforceOtpRateLimit). The wrong-OTP attempt limit still applies, and a test
 // covers it.
