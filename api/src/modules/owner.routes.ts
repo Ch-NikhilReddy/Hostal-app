@@ -22,22 +22,57 @@ export const ownerRouter = Router();
 ownerRouter.use(requireAuth, requireRole(Role.OWNER));
 
 /**
- * Load the caller's Owner record.
+ * Owner states that may still use the owner API.
+ *
+ * DRAFT and PENDING are deliberately ALLOWED. A new owner arrives as DRAFT, uploads
+ * a document which moves them to PENDING, and needs to reach GET /verification to
+ * read the checklist of what is still missing. Blocking those states would lock a
+ * new owner out of the only screen that tells them how to get approved.
+ *
+ * SUSPENDED and REJECTED are blocked. Suspending unpublishes an owner's existing
+ * properties (see admin.routes.ts) but previously did nothing to their session, so
+ * a suspended owner could still create new properties and accept bookings. That is
+ * the H-1 defect.
+ */
+const OWNER_BLOCKED_STATUSES: readonly VerificationStatus[] = [
+  VerificationStatus.SUSPENDED,
+  VerificationStatus.REJECTED,
+];
+
+/**
+ * Load the caller's Owner record, rejecting owners whose account is not in good
+ * standing.
  *
  * A user with the OWNER role and no Owner row is a broken account, not an empty
  * dashboard — it means signup did not complete — so it is a 500 rather than a
  * silent empty state.
+ *
+ * This is the single funnel for all 12 owner handlers, which is why the status
+ * check lives here rather than in each route: adding a handler without repeating
+ * the guard is exactly how the original gap appeared.
  */
 async function requireOwner(auth: { sub: string; ownerId?: string }) {
-  if (auth.ownerId) {
-    const byId = await prisma.owner.findUnique({ where: { id: auth.ownerId } });
-    if (byId) return byId;
-  }
-  const byUser = await prisma.owner.findUnique({ where: { userId: auth.sub } });
-  if (!byUser) {
+  // The token's ownerId is a hint, not proof: fall back to the userId lookup so a
+  // token minted before the Owner row existed still resolves.
+  const byId = auth.ownerId ? await prisma.owner.findUnique({ where: { id: auth.ownerId } }) : null;
+  const owner = byId ?? (await prisma.owner.findUnique({ where: { userId: auth.sub } }));
+
+  if (!owner) {
     throw AppError.internal('Your owner account is incomplete. Please contact support.');
   }
-  return byUser;
+
+  // Read fresh from the database on every call, never from the token. The token
+  // outlives a suspension, so trusting it would leave this exact hole open.
+  if (OWNER_BLOCKED_STATUSES.includes(owner.verificationStatus)) {
+    throw AppError.forbidden(
+      owner.verificationStatus === VerificationStatus.SUSPENDED
+        ? 'Your owner account is suspended. Please contact support.'
+        : 'Your owner account was not approved. Please check your verification documents.',
+      'OWNER_NOT_IN_GOOD_STANDING',
+    );
+  }
+
+  return owner;
 }
 
 function slugify(input: string): string {

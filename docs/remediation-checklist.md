@@ -42,10 +42,11 @@ Status legend: `[x]` done · `[~]` in progress · `[ ]` pending
 
 ### H-1 Suspended owner → 403
 - [x] Confirmed (`POST /v1/owner/hostels` → 201 while SUSPENDED)
-- [ ] Fixed
-- [ ] Tests — active / suspended / rejected / inactive / student / admin
-- [ ] Live probe
-- [ ] Diff reviewed
+- [x] Fixed — `requireOwner` rejects SUSPENDED / REJECTED, read from the DB every call
+- [x] Tests (14) — suspended / rejected / approved / draft / pending / student / admin
+- [x] DRAFT and PENDING deliberately still allowed (blocking them deadlocks onboarding)
+- [x] Live probe — `probe-owner-status.mjs` 21/21 against the running API
+- [x] Diff reviewed
 
 ### H-2 `requireAuth` checks `isActive`
 - [x] Confirmed (`/v1/auth/me` → 200 after deactivation)

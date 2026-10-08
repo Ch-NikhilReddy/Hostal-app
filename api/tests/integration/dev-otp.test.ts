@@ -53,9 +53,18 @@ function boot(nodeEnv: string, enableDevOtp: string | undefined): Promise<BootRe
     JWT_SECRET: 'production-shaped-secret-at-least-32-chars',
     OTP_PROVIDER: nodeEnv === 'production' ? 'msg91' : 'console',
     MSG91_AUTH_KEY: nodeEnv === 'production' ? 'test-key-not-used' : '',
-    // Undefined means the variable is absent, which is the important case:
-    // absence must behave as false.
-    ...(enableDevOtp === undefined ? { ENABLE_DEV_OTP: undefined } : { ENABLE_DEV_OTP: enableDevOtp }),
+    // The value is ALWAYS set explicitly, including for the "fresh clone" case.
+    //
+    // It cannot be simulated by omitting the variable: config.ts calls
+    // process.loadEnvFile, which re-reads the developer's own repo-root .env. That
+    // file carries ENABLE_DEV_OTP=true so the smoke tests can sign in, so an
+    // "absent" case would silently inherit it and assert the wrong thing.
+    //
+    // An EMPTY value is therefore used for the fresh-clone case, which is exactly
+    // what .env.example ships and what process.loadEnvFile produces for a line
+    // with no `=`. The truly-absent case is covered by the unit test on
+    // boolDefault, where no .env is in scope.
+    ENABLE_DEV_OTP: enableDevOtp ?? '',
   };
 
   return new Promise((resolve) => {
@@ -119,7 +128,7 @@ describe('C-3 — OTP is never echoed unless explicitly opted in', () => {
     expect(r.output).toMatch(/ENABLE_DEV_OTP must not be true in production/);
   });
 
-  it('production + ENABLE_DEV_OTP unset -> boots, and echoes no OTP', async () => {
+  it('production  + ENABLE_DEV_OTP empty -> boots, and echoes no OTP', async () => {
     const r = await boot('production', undefined);
     expect(r.booted).toBe(true);
     expect('devOtp' in r.body).toBe(false);
@@ -143,7 +152,7 @@ describe('C-3 — OTP is never echoed unless explicitly opted in', () => {
     expect('devOtp' in r.body).toBe(false);
   });
 
-  it('development + ENABLE_DEV_OTP unset -> no OTP in the response', async () => {
+  it('development + ENABLE_DEV_OTP empty -> no OTP in the response', async () => {
     // Absence of the variable must behave as false. This is the default path for
     // anyone who copies .env.example.
     const r = await boot('development', undefined);
