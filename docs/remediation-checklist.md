@@ -71,21 +71,25 @@ Status legend: `[x]` done · `[~]` in progress · `[ ]` pending
 
 ### M-1 Backups + tested restore
 - [x] Confirmed (no tooling)
-- [ ] Script (no secrets in source)
-- [ ] Retention documented
-- [ ] **Restore actually run and verified**
-- [ ] RPO / RTO documented
+- [x] Script — `scripts/db-backup.mjs`, no secrets in source or on any command line
+- [x] Retention documented — `docs/backup-restore.md`, 30 days
+- [x] **Restore actually run and verified** — 15 tables, all counts match
+- [x] **Verification proven to fail** on a truncated dump; live DB untouched throughout
+- [x] RPO / RTO documented
+- [ ] Production backup destination — **blocked, needs a decision** (see §5 of the runbook)
 
 ### M-2 Prisma migration baseline
 - [x] Confirmed (no `migrations/`)
-- [ ] Baseline established without data loss
-- [ ] Future deploys use `migrate deploy`
+- [x] Baseline established without data loss — `migrate diff` + `resolve --applied`
+- [x] `migrate status` reports up to date; row counts unchanged
+- [x] Future deploys use `migrate deploy` (`db:deploy`), never `db push`
+- [x] `db:deploy` verified idempotent
 
 ### M-7 Postgres not on 0.0.0.0
 - [x] Confirmed
-- [ ] Bound to `127.0.0.1`
-- [ ] API still connects
-- [ ] External access verified blocked
+- [x] Bound to `127.0.0.1`
+- [x] API still connects — `/health` → `database: up`
+- [x] External access verified blocked — TCP to `172.25.160.1:5432` → `False`
 
 ---
 

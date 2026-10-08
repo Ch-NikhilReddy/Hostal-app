@@ -28,3 +28,5 @@ Thumbs.db
 *.keystore
 *.jks
 android/app/google-services.json
+# Database dumps. A backup committed to version control is a data leak.
+api/backups/

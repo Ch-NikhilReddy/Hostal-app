@@ -8,7 +8,17 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hostelmitra}
       POSTGRES_DB: ${POSTGRES_DB:-hostelmitra}
     ports:
-      - '${POSTGRES_PORT:-5432}:5432'
+      # Bound to the loopback interface only.
+      #
+      # An unqualified "5432:5432" publishes Postgres on every interface the host has,
+      # including the one a cloud VM is reachable on. The default development
+      # password is in .env.example, so that combination is an open database on the
+      # internet for anyone who finds the port. Only the API needs to reach this, and
+      # the API runs on this machine.
+      #
+      # To reach it from another host (a developer laptop against a shared server),
+      # put it behind a tunnel rather than widening this binding.
+      - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
     volumes:
       - hostelmitra-pgdata:/var/lib/postgresql/data
     healthcheck:
