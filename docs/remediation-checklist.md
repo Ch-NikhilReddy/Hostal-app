@@ -198,10 +198,16 @@ Status legend: `[x]` done · `[~]` in progress · `[ ]` pending
 - [x] Tests (4) — owner notified, names the reference, student is not, bed released
 
 ### M-6 OTP / token retention
-- [x] Confirmed (4,626 OTP rows and growing from probing)
-- [ ] Cleanup job
-- [ ] Retention documented
-- [ ] Tests
+- [x] Confirmed (3,701 OTP rows on a dev database that has never seen traffic)
+- [x] Cleanup job — `api/src/lib/retention.ts`, hourly from `server.ts`
+- [x] Retention documented — OTP **24h**, refresh tokens **30 days past expiry**
+- [x] The two windows differ deliberately: deleting a refresh token early signs a real
+      user out, keeping an OTP slightly long is merely untidy. When in doubt, keep more.
+- [x] Sweep failure is logged, never thrown — a retention job must not shut the API down
+- [x] Tests (9) — both sides of each boundary, idempotency, and that users/bookings/
+      payments are never candidates
+- [x] Verified on the real database: a seeded 72-hour-old code was removed, a 23-hour
+      one kept
 
 ---
 
@@ -218,8 +224,16 @@ Status legend: `[x]` done · `[~]` in progress · `[ ]` pending
 
 ### M-9 CSP + Permissions-Policy
 - [x] Confirmed
-- [ ] CSP fitted to Vite/React
-- [ ] Dashboard verified after change
+- [x] **API origin** — CSP on `app.ts`: `default-src 'none'`, `frame-ancestors 'none'`,
+      `object-src 'none'`, `connect-src 'self'`. Verified in the response headers.
+- [x] **Dashboard origin** — `web/nginx.conf`, fitted to a Vite/React build, each
+      directive annotated with what it was stopping
+- [x] **NOT DONE, and stated:** the dashboard's CSP must be set by whatever serves
+      `web/dist/`, because the API does not serve that origin. The nginx config is
+      ready; **it has never been applied**, because the hosting target is still
+      undecided (blocked item B5). Until it is, the dashboard runs with no CSP.
+- [x] `connect-src` called out as the line to get right at deploy time
+- [ ] **Dashboard verified in a browser after nginx.conf is applied** — needs B5
 
 ### M-10 Web token storage — **decision: document + CSP**
 - [x] Confirmed (localStorage)

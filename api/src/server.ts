@@ -2,10 +2,14 @@ import { createApp } from './app.js';
 import { config } from './config.js';
 import { prisma } from './db.js';
 import { startHoldReaper, stopHoldReaper } from './lib/holdReaper.js';
+import { startRetentionSweeper, stopRetentionSweeper } from './lib/retention.js';
 
 // Expired payment holds are swept on a timer rather than on the search path.
 // See lib/holdReaper.ts for why a backstop is still kept.
+// Expired OTP codes and refresh tokens are swept hourly. See lib/retention.js for why
+// the two windows differ.
 startHoldReaper();
+startRetentionSweeper();
 
 const app = createApp();
 
@@ -44,6 +48,7 @@ async function shutdown(signal: string): Promise<void> {
   server.close(async () => {
     try {
       stopHoldReaper();
+      stopRetentionSweeper();
       await prisma.$disconnect();
       console.log('Closed cleanly.');
       process.exit(0);
