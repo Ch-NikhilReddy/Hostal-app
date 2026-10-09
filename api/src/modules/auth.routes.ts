@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { NotificationChannel, Role } from '@prisma/client';
 import { config } from '../config.js';
 import { prisma } from '../db.js';
+import { limits } from '../lib/rateLimit.js';
 import { AppError, asyncHandler } from '../lib/errors.js';
 import { validate } from '../http/validate.js';
 import { requireAuth, type AuthedRequest } from '../http/auth.js';
@@ -44,18 +45,11 @@ const OTP_TTL_MINUTES = 10;
 const OTP_MAX_PER_WINDOW = Number.parseInt(process.env.OTP_MAX_PER_WINDOW ?? '3', 10);
 
 /**
- * What the send limit is actually for: stopping a script that hammers one number
- * to burn paid SMS credits, and slowing credential-stuffing against the OTP flow.
- *
- * When the OTP is logged to the console rather than sent, there are no credits to
- * burn, and blocking a developer running the smoke tests twice in a row helps
- * nobody. So the limit is enforced only when an OTP actually costs money.
- *
- * This is not a blanket development exemption — the wrong-OTP attempt limit below
- * stays at 5 regardless, because that one protects the account and not the
- * budget.
+ * The send limit exists to protect the operator's SMS balance, so it is enforced only
+ * when a code actually costs money — which is the same rule the per-IP cap in
+ * lib/rateLimit.ts follows. Both live in config now so the two cannot drift apart.
  */
-const OTP_IS_BILLED = config.OTP_PROVIDER === 'msg91' && config.MSG91_AUTH_KEY.length > 0;
+const OTP_IS_BILLED = config.otpIsBilled;
 
 function enforceOtpRateLimit(phone: string): void {
   if (!OTP_IS_BILLED) return;
@@ -83,6 +77,12 @@ const requestOtpBody = z.object({ phone: phoneSchema });
 
 authRouter.post(
   '/otp/request',
+  // Per IP only. The per-phone send limit is enforceOtpRateLimit() further down, and
+  // it is deliberately inert when the OTP is not billed. Both existing counters key on
+  // the phone number, so an attacker rotating numbers gets a fresh budget each time �
+  // which is exactly the shape of an SMS billing attack, because the cost lands on the
+  // operator. This closes that half and nothing else.
+  limits.otpRequestByIp,
   validate(z.object({ body: requestOtpBody })),
   asyncHandler(async (req, res) => {
     const { phone } = req.body as z.infer<typeof requestOtpBody>;

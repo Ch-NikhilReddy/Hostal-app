@@ -71,6 +71,13 @@ const schema = z.object({
   FCM_SERVER_KEY: z.string().default(''),
 
   STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
+
+  // H-4 rate limiting. There is no disable switch in production on purpose: turning
+  // limiting off is how an OTP endpoint becomes an SMS-billing attack on the operator.
+  // RATE_LIMIT_DISABLED only has an effect when NODE_ENV=test, and the test suite sets
+  // it so that a 281-test run sharing one in-process counter map does not fail on
+  // ordering. It cannot weaken a real deployment.
+  RATE_LIMIT_DISABLED: boolDefault(false),
   STORAGE_LOCAL_DIR: z.string().default('./var/uploads'),
   S3_BUCKET: z.string().default(''),
   S3_REGION: z.string().default('ap-south-1'),
@@ -154,6 +161,23 @@ export const config = {
   ...env,
   isProduction: env.NODE_ENV === 'production',
   isTest: env.NODE_ENV === 'test',
+
+  /**
+   * True when sending an OTP costs money.
+   *
+   * Both OTP send limiters — the per-phone counter in auth.routes.ts and the per-IP
+   * one in lib/rateLimit.ts — exist to stop a caller burning the operator's SMS
+   * balance. When codes are only printed to the console there is no balance to burn,
+   * and blocking a developer who runs the smoke test twice helps nobody.
+   *
+   * This is not a blanket development exemption. The wrong-OTP attempt limit is 5
+   * regardless, because that one protects the account rather than the budget.
+   *
+   * Declared once here so the two limiters cannot drift apart — which is exactly what
+   * happened while writing them: the per-IP cap was added without this rule and
+   * promptly blocked the local smoke test.
+   */
+  otpIsBilled: env.OTP_PROVIDER === 'msg91' && env.MSG91_AUTH_KEY.length > 0,
 
   /** Razorpay keys present means use the real gateway; otherwise the mock. */
   paymentProvider: (env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET ? 'razorpay' : 'mock') as

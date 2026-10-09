@@ -9,12 +9,14 @@ import {
   type Prisma,
 } from '@prisma/client';
 import { prisma } from '../db.js';
+import { limits } from '../lib/rateLimit.js';
 import { AppError, asyncHandler } from '../lib/errors.js';
 import { validate } from '../http/validate.js';
 import { startOfUtcDay } from '../lib/dates.js';
 import { boundingBox, estimateTravelMinutes, haversineKm } from '../lib/geo.js';
 import { sanitiseAmenities } from '../lib/vocabulary.js';
-import { availabilityByRoomType, availableBeds, releaseExpiredHolds } from '../services/availability.js';
+import { availabilityByRoomType, availableBeds } from '../services/availability.js';
+import { sweepExpiredHolds } from '../lib/holdReaper.js';
 
 export const catalogRouter = Router();
 
@@ -157,15 +159,21 @@ type SearchQuery = z.infer<typeof searchQuery>;
 
 catalogRouter.get(
   '/hostels',
+  limits.search,
   validate(z.object({ query: searchQuery })),
   asyncHandler(async (req: Request, res) => {
     const q = req.query as unknown as SearchQuery;
 
-    // Opportunistic, and cheap: it stops abandoned payment holds from shrinking
-    // the inventory shown to everyone else.
-    await releaseExpiredHolds(prisma).catch((err) => {
-      console.warn('[catalog] releaseExpiredHolds failed:', (err as Error).message);
-    });
+    // Was wait releaseExpiredHolds(prisma) on every search. That made the most-hit
+    // endpoint in the application a writer: row lock, UPDATE ... RETURNING, and an
+    // audit row, per request. Search could not be cached or served from a replica, and
+    // it got slower as it got more popular.
+    //
+    // The sweep now runs on a timer (lib/holdReaper.ts). This call is only the
+    // backstop for a dead timer, and it is limited to once a minute no matter how many
+    // searches arrive — so if the timer ever stops, the next search repairs the
+    // inventory instead of every abandoned checkout shrinking it permanently.
+    await sweepExpiredHolds();
 
     // Resolve the search origin. A college id wins over raw coordinates, because
     // "hostels near OU campus" is the intent behind most searches.

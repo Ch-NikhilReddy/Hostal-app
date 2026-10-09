@@ -2,6 +2,7 @@ import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { BookingStatus, NotificationChannel, Role, VerificationStatus } from '@prisma/client';
 import { prisma } from '../db.js';
+import { limits } from '../lib/rateLimit.js';
 import { AppError, asyncHandler } from '../lib/errors.js';
 import { validate } from '../http/validate.js';
 import { requireAuth, requireRole, type AuthedRequest } from '../http/auth.js';
@@ -11,7 +12,7 @@ import { notify } from '../services/notifications.js';
 
 export const adminRouter = Router();
 
-adminRouter.use(requireAuth, requireRole(Role.ADMIN));
+adminRouter.use(requireAuth, requireRole(Role.ADMIN), limits.admin);
 
 // ---------------------------------------------------------------------------
 // Owner verification

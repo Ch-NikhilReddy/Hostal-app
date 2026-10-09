@@ -45,8 +45,14 @@ export class AppError extends Error {
     return new AppError(422, code, message, details);
   }
 
-  static tooManyRequests(message = 'Too many attempts. Please try again later.'): AppError {
-    return new AppError(429, 'RATE_LIMITED', message);
+  /**
+ * `code` is optional because a 429 has two distinct causes that a client may want to
+ * tell apart: a generic throttle, and a per-route budget such as OTP issuance. Every
+ * other helper takes a code, so this one did too rather than leaving callers to
+ * hardcode RATE_LIMITED and lose the distinction.
+ */
+static tooManyRequests(message = 'Too many attempts. Please try again later.', code = 'RATE_LIMITED'): AppError {
+    return new AppError(429, code, message);
   }
 
   static internal(message = 'Something went wrong. Please try again.'): AppError {

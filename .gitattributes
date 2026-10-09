@@ -1,0 +1,14 @@
+# Prevents the M-1-era BOM/CRLF class of problem reaching a migration.
+#
+# migrations/*.sql is SQL executed by Postgres. core.autocrlf on Windows rewrites
+# line endings on checkout and some editors prepend a UTF-8 BOM; Postgres rejects a
+# BOM with error 42601, which surfaced as migrate deploy failing on a fresh
+# database while the development database ? created with db push ? never noticed.
+* text=auto eol=lf
+*.sql text eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.png binary
+*.jpg binary
+*.dump binary

@@ -146,13 +146,27 @@ Status legend: `[x]` done · `[~]` in progress · `[ ]` pending
 
 ### H-4 Rate limiting
 - [x] Confirmed
-- [ ] OTP · auth · search · quote · booking · admin
-- [ ] Tests
+- [x] Search 600/min · quote 30/min · booking 8/hour · admin 60/min · OTP per-IP 20/15min
+- [x] **OTP guessing deliberately NOT duplicated** — `OtpCode.attempts` already counts
+      5 per code in the *database*, which survives restart and coordinates across
+      instances. An in-memory copy would be weaker and would obscure which is
+      authoritative.
+- [x] Per-IP SMS cap closes the real gap: the existing per-phone counter is reset by
+      changing the number, which is the shape of an SMS billing attack on the operator
+- [x] Tests (21) — limits, Retry-After, headers, window expiry, NAT behaviour, gate
+- [x] **Two defects found by running the thing:** the cap blocked `smoke-test.mjs` on
+      its 10th sign-in, and a 60/min search limit throttled a legitimate shared-network
+      client. Both fixed by principle, not by exemption.
+- [x] Known limitation documented: per-process counters, so N replicas = N× the limit
 
 ### Search write path
 - [x] Confirmed (`releaseExpiredHolds` on every search)
-- [ ] Moved to scheduled job
-- [ ] Documented
+- [x] Moved to a timer — `lib/holdReaper.ts`, started from `server.ts`
+- [x] **Request-path backstop kept, bounded to once per 60s.** Removing it entirely
+      would mean a dead timer lets every abandoned checkout shrink inventory forever.
+- [x] Documented — sweep failure is logged and resets the guard rather than waiting
+      out a full minute on a transient error
+- [x] Skipped under `NODE_ENV=test` so a background writer cannot race the suite
 
 ---
 

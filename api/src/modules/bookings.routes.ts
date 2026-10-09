@@ -11,6 +11,7 @@ import {
 } from '@prisma/client';
 import { config } from '../config.js';
 import { prisma, withTransaction } from '../db.js';
+import { limits } from '../lib/rateLimit.js';
 import { AppError, asyncHandler } from '../lib/errors.js';
 import { validate } from '../http/validate.js';
 import { requireAuth, requireRole, type AuthedRequest } from '../http/auth.js';
@@ -158,6 +159,7 @@ function serialiseQuote(quote: ReturnType<typeof quotePrice>) {
 
 bookingsRouter.post(
   '/quote',
+  limits.quote,
   requireAuth,
   requireRole(Role.STUDENT, Role.OWNER, Role.ADMIN),
   validate(z.object({ body: quoteBody })),
@@ -205,6 +207,10 @@ bookingsRouter.post(
   '/',
   requireAuth,
   requireRole(Role.STUDENT),
+  // 8 per hour per user. Booking is the money path and the one place where a
+  // burst has a real cost. The limit sits above the concurrency probe's 8
+  // simultaneous requests so that the SELECT ... FOR UPDATE guarantee stays testable.
+  limits.booking,
   validate(z.object({ body: createBody })),
   asyncHandler(async (req: Request, res) => {
     const auth = (req as AuthedRequest).auth;

@@ -1,6 +1,11 @@
 import { createApp } from './app.js';
 import { config } from './config.js';
 import { prisma } from './db.js';
+import { startHoldReaper, stopHoldReaper } from './lib/holdReaper.js';
+
+// Expired payment holds are swept on a timer rather than on the search path.
+// See lib/holdReaper.ts for why a backstop is still kept.
+startHoldReaper();
 
 const app = createApp();
 
@@ -38,6 +43,7 @@ async function shutdown(signal: string): Promise<void> {
 
   server.close(async () => {
     try {
+      stopHoldReaper();
       await prisma.$disconnect();
       console.log('Closed cleanly.');
       process.exit(0);
