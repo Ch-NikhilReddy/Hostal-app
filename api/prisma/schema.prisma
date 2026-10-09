@@ -597,6 +597,58 @@ model Payment {
 }
 
 // ---------------------------------------------------------------------------
+// Admin audit (H-5)
+// ---------------------------------------------------------------------------
+
+/// Append-only record of every privileged action.
+///
+/// Append-only is enforced by the database, not by convention: migration
+/// `20260101000000_admin_audit_log` installs a BEFORE UPDATE OR DELETE trigger that
+/// raises. Application code being careful is not the same guarantee, because the next
+/// person to add an admin endpoint will not know to be careful, and a trail that can be
+/// rewritten is not evidence.
+///
+/// The actor's phone number is stored denormalised, deliberately. There is no foreign
+/// key to User on purpose: when a compromised admin account is deleted, the record of
+/// what it did must survive. A trail that vanishes along with the account is no use at
+/// exactly the moment it is needed.
+model AdminAuditLog {
+  id String @id @default(cuid())
+
+  /// Null when the actor's user row is gone. The phone number below still identifies them.
+  actorId    String?
+  actorPhone String
+  actorRole  String
+
+  /// Stable machine-readable verb, e.g. OWNER_VERIFY, COMMISSION_OVERRIDE.
+  action String
+
+  /// What was acted on, e.g. Owner, Hostel, CommissionConfig.
+  targetType String?
+  targetId   String?
+
+  /// One line, written for a human reading the trail during an investigation.
+  summary String
+
+  /// Structured detail. Never credentials, tokens or full request bodies.
+  metadata Json?
+
+  /// Ties the entry to the request logs, so a trail entry can be expanded into the
+  /// full story of that request. Set from the request id middleware.
+  requestId String?
+
+  ipAddress String?
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([action])
+  @@index([targetType, targetId])
+  @@index([actorId])
+  @@map("admin_audit_log")
+}
+
+// ---------------------------------------------------------------------------
 // Notifications
 // ---------------------------------------------------------------------------
 

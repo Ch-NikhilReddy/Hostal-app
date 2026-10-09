@@ -2,6 +2,7 @@ import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { BookingStatus, NotificationChannel, Role, VerificationStatus } from '@prisma/client';
 import { prisma } from '../db.js';
+import { actorFrom, recordAdminAction } from '../lib/adminAudit.js';
 import { limits } from '../lib/rateLimit.js';
 import { AppError, asyncHandler } from '../lib/errors.js';
 import { validate } from '../http/validate.js';
@@ -172,6 +173,17 @@ adminRouter.post(
       channels: [NotificationChannel.IN_APP, NotificationChannel.PUSH],
     });
 
+    // H-5: privileged action, recorded. dmin is the verified token's subject.
+    await recordAdminAction(prisma, {
+      req,
+      action: 'OWNER_VERIFY',
+      actor: await actorFrom(prisma, admin),
+      targetType: 'Owner',
+      targetId: id,
+      summary: `Owner verification set to ${body.status}`,
+      metadata: { status: body.status, reason: body.reason ?? null },
+    });
+
     res.json({ ok: true, ownerId: id, status: body.status });
   }),
 );
@@ -214,6 +226,16 @@ adminRouter.post(
       createdById: admin.sub,
     });
 
+    await recordAdminAction(prisma, {
+      req,
+      action: 'COMMISSION_SET',
+      actor: await actorFrom(prisma, admin),
+      targetType: 'CommissionConfig',
+      targetId: body.label,
+      summary: `Default commission set to ${body.percent}%`,
+      metadata: { label: body.label, percent: body.percent },
+    });
+
     res.json({ ok: true, percentageBps: percentToBps(body.percent) });
   }),
 );
@@ -234,6 +256,16 @@ adminRouter.post(
       where: { id },
       data: { commissionOverrideBps },
       select: { id: true, commissionOverrideBps: true },
+    });
+
+    await recordAdminAction(prisma, {
+      req,
+      action: 'COMMISSION_OVERRIDE',
+      actor: await actorFrom(prisma, (req as AuthedRequest).auth),
+      targetType: 'Owner',
+      targetId: id,
+      summary: `Commission override set to ${commissionOverrideBps ?? 'default'}`,
+      metadata: { commissionOverrideBps: commissionOverrideBps ?? null },
     });
 
     res.json({ ok: true, owner });
@@ -300,6 +332,16 @@ adminRouter.post(
           : `Status: ${body.status}.${body.reason ? ` Reason: ${body.reason}` : ''}`,
       data: { type: 'HOSTEL_MODERATED', hostelId: id, status: body.status },
       channels: [NotificationChannel.IN_APP],
+    });
+
+    await recordAdminAction(prisma, {
+      req,
+      action: 'HOSTEL_MODERATE',
+      actor: await actorFrom(prisma, (req as AuthedRequest).auth),
+      targetType: 'Hostel',
+      targetId: id,
+      summary: `Hostel moderated: ${body.status}`,
+      metadata: { status: body.status, reason: body.reason ?? null },
     });
 
     res.json({ ok: true, hostel: updated });

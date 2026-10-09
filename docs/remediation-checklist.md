@@ -174,8 +174,23 @@ Status legend: `[x]` done · `[~]` in progress · `[ ]` pending
 
 ### H-5 Admin audit trail
 - [x] Confirmed
-- [ ] Append-only records
-- [ ] Tests
+- [x] `AdminAuditLog` model + migration `20260101000000_admin_audit_log`
+- [x] Records actor (id, phone, role), action verb, target, a human-readable summary,
+      structured metadata, the **request id** and the client IP
+- [x] **Append-only enforced by the database**, not by application convention — a
+      `BEFORE UPDATE OR DELETE` trigger raises
+- [x] **Verified in raw `psql`, not through the client**: `UPDATE` and `DELETE` both
+      refused with `admin_audit_log is append-only`; 33 entries survived both attempts
+- [x] No foreign key to User, deliberately — the record must outlive a deleted account
+- [x] Recorded: owner verification · commission override · default commission ·
+      hostel moderation
+- [x] Reads are **not** recorded, on purpose — logging them would bury the entries that
+      matter under a constant stream of "an admin looked at a page"
+- [x] Audit failure never blocks the action; it is logged loudly including the action
+      that went unrecorded. A full disk must not freeze the admin console, because the
+      usual fix for that is to disable auditing.
+- [x] Tests (11) — recording, actor attribution, request-id correlation, raw-SQL
+      tamper attempts, and that the original text survives a failed rewrite
 
 ---
 
