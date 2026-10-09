@@ -96,7 +96,13 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
 
   console.error('[unhandled]', req.method, req.originalUrl, err);
   res.status(500).json({
-    error: { code: 'INTERNAL_ERROR', message: 'Something went wrong. Please try again.' },
+    error: {
+      code: 'INTERNAL_ERROR',
+      message: 'Something went wrong. Please try again.',
+      // The request id, so a user reporting a failure gives the operator something
+      // specific to grep for instead of a timestamp and a symptom.
+      requestId: (req as Request & { requestId?: string }).requestId,
+    },
   });
 }
 

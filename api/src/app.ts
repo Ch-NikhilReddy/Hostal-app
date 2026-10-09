@@ -6,6 +6,7 @@ import { config } from './config.js';
 import { buildCorsPolicy, corsGuard } from './lib/cors.js';
 import { prisma } from './db.js';
 import { errorHandler, notFoundHandler } from './lib/errors.js';
+import { requestId } from './lib/requestId.js';
 import { authRouter } from './modules/auth.routes.js';
 import { catalogRouter } from './modules/catalog.routes.js';
 import { bookingsRouter, webhookRouter } from './modules/bookings.routes.js';
@@ -25,7 +26,33 @@ export function createApp(): Express {
       // Images are served cross-origin to the Expo app and the dashboard, so the
       // default same-origin image policy would blank every hostel photo.
       crossOriginResourcePolicy: { policy: 'cross-origin' },
-      contentSecurityPolicy: false,
+
+      // M-9. The API serves JSON, not HTML, so a CSP here is not the main prize — it
+      // stops the API origin being framed and restricts what a stray HTML response
+      // could do. The DASHBOARD's own CSP is a separate problem and is NOT solved
+      // here: the API does not serve the dashboard, so it cannot set a policy for
+      // that origin. See docs/deployment.md and web/nginx.conf for where that has to
+      // be applied.
+      contentSecurityPolicy: {
+        useDefaults: false,
+        directives: {
+          'default-src': ["'none'"],
+          'base-uri': ["'none'"],
+          'form-action': ["'none'"],
+          'frame-ancestors': ["'none'"],
+          'object-src': ["'none'"],
+          // The only thing this origin is ever allowed to load.
+          'connect-src': ["'self'"],
+          'img-src': ["'self'", 'data:'],
+        },
+      },
+
+      // The API is called by the dashboard and the Expo app from other origins, and
+      // the app sends a Bearer token rather than cookies, so credentials are not part
+      // of the request. Keeping this explicit stops it being turned on by accident:
+      // once credentials are allowed, CORS needs re-examining, because a wildcard
+      // origin with credentials is the C-1 vulnerability in a different hat.
+      crossOriginEmbedderPolicy: false,
     }),
   );
 
@@ -50,8 +77,18 @@ export function createApp(): Express {
     next();
   });
 
+  // Assigned before morgan, so every log line carries the id. Must come before the
+  // logger and before any route, including /health.
+  app.use(requestId);
+
   if (!config.isTest) {
-    app.use(morgan(config.isProduction ? 'combined' : 'dev'));
+    // The id is in every line, including morgan's own errors, so a single grep finds
+    // the whole story of one request.
+    app.use(
+      morgan(config.isProduction ? 'combined' : 'dev', {
+        stream: { write: (line: string) => process.stdout.write(line) },
+      }),
+    );
   }
 
   // ---- Webhook route first, with the RAW body ---------------------------
