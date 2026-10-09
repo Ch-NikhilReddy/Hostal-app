@@ -65,6 +65,21 @@ function boot(nodeEnv: string, enableDevOtp: string | undefined): Promise<BootRe
     // with no `=`. The truly-absent case is covered by the unit test on
     // boolDefault, where no .env is in scope.
     ENABLE_DEV_OTP: enableDevOtp ?? '',
+
+    // These must be explicitly cleared, not merely absent.
+    //
+    // tests/setup.ts sets RATE_LIMIT_DISABLED=true for the whole suite, and this test
+    // spawns children with NODE_ENV=production. config.ts refuses to start in
+    // production when either of these is set — deliberately, since an unthrottled OTP
+    // endpoint is a billing attack — so the children inherited the suite's own
+    // settings and refused to boot. Every assertion in this file then failed for a
+    // reason that had nothing to do with OTP echoing.
+    //
+    // The lesson is the same one already written above this block: in a spawned child,
+    // "omitted" does not mean "unset", because process.loadEnvFile and the inherited
+    // environment both fill it in.
+    RATE_LIMIT_DISABLED: '',
+    BENCHMARK_MODE: '',
   };
 
   return new Promise((resolve) => {

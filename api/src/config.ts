@@ -72,12 +72,14 @@ const schema = z.object({
 
   STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
 
-  // H-4 rate limiting. There is no disable switch in production on purpose: turning
-  // limiting off is how an OTP endpoint becomes an SMS-billing attack on the operator.
-  // RATE_LIMIT_DISABLED only has an effect when NODE_ENV=test, and the test suite sets
-  // it so that a 281-test run sharing one in-process counter map does not fail on
-  // ordering. It cannot weaken a real deployment.
+  // H-4 rate limiting. Neither switch has any effect in production — setting either
+  // one there is a refusal to boot, not a warning. See lib/rateLimit.ts.
   RATE_LIMIT_DISABLED: boolDefault(false),
+  // For scripts/probe-load.mjs only, so that it measures the database rather than the
+  // limiter. 625 requests in about a second exhausts the 600/min anonymous search
+  // budget, which made the search latency baseline unmeasurable. You cannot measure
+  // backend performance through a rate limiter.
+  BENCHMARK_MODE: boolDefault(false),
   STORAGE_LOCAL_DIR: z.string().default('./var/uploads'),
   S3_BUCKET: z.string().default(''),
   S3_REGION: z.string().default('ap-south-1'),

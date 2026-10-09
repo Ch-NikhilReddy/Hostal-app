@@ -252,25 +252,68 @@ Status legend: `[x]` done · `[~]` in progress · `[ ]` pending
 
 ### M-10 Web token storage — **decision: document + CSP**
 - [x] Confirmed (localStorage)
-- [ ] Risk documented
+- [x] Risk documented — `docs/security-model.md` §4.3
+- [x] **Mitigation in place:** API-origin CSP shipped (M-9); dashboard CSP written and
+      ready in `web/nginx.conf` but **not applied** — needs B5
+- [x] **Trigger recorded:** migrate to httpOnly cookies before any third-party script is
+      added to the dashboard, not at some undefined later date
+- [ ] Cookies — not started. A project (CSRF + same-site strategy + credentialed CORS
+      + two client changes), not a patch. Doing half of it would be worse than none.
 
 ### M-11 DPDP deletion / export
 - [x] Confirmed
-- [ ] Data lifecycle documented
-- [ ] Implemented or designed
+- [x] **Designed** — `docs/data-protection.md`: what counts as personal data, retention
+      per table, what can and cannot be erased and why, proposed endpoints, and the
+      per-relation decision the erasure endpoint needs before it can be written
+- [x] **Two real gaps identified while writing it:** no scheduled erasure of a
+      deactivated account, and notifications are never pruned — the largest unbounded
+      PII table in the system
+- [ ] Implemented — needs a schema decision (cascade vs null vs pseudonymise per relation)
 
 ### M-12 PII minimisation
 - [x] Confirmed (20 columns)
-- [ ] Access restricted
-- [ ] Encryption decision documented
+- [x] Access restricted — H-1 and H-2 now re-check standing on every request; H-5 audits
+      privileged actions
+- [x] **Encryption decision documented** — `docs/data-protection.md` §6. **Not done, and
+      named as the largest genuine gap in that document:** 20 PII columns in plain text,
+      so a stolen database dump is a complete customer list. Two options with different
+      threat models: host-level disk encryption (cheap, coarse) or column-level for
+      phone/email/documents (targeted, needs key management). Deciding this needs a
+      threat model, not a preference.
 
 ---
 
 ## PHASE 9 — SCALABILITY (measurement-gated)
+- [x] **Baseline measured** — `node scripts/probe-load.mjs` with `BENCHMARK_MODE=1`
 - [ ] DB-level pagination for search
 - [ ] Index review
 - [ ] Connection pooling
 - No PostGIS/Redis/queues unless measurements justify them
+
+### Measured baseline — 8 hostels, 230 beds, 625 requests per scenario
+
+Taken with rate limiting off, because you cannot measure backend performance through
+a rate limiter — 625 requests in about a second exhausts the 600/min anonymous search
+budget and the next scenario gets nothing but refusals. That is the limiter working
+correctly, and it is also why `BENCHMARK_MODE` exists.
+
+| Endpoint | p50 | p95 | p99 | max | errors |
+|---|---|---|---|---|---|
+| search (browse) | 100 ms | 192 ms | 279 ms | 304 ms | 0 |
+| **search (dates + availability)** | **177 ms** | **293 ms** | **312 ms** | **319 ms** | 0 |
+| hostel detail | 53 ms | 87 ms | 106 ms | 117 ms | 0 |
+| colleges | 31 ms | 55 ms | 69 ms | 71 ms | 0 |
+
+Sustained: **235 req/s, 0 errors**.
+
+**The finding, and where optimisation effort should go:** search *with* availability is
+roughly **1.8× the cost of plain search**, and that gap is the availability computation
+running per candidate hostel on the search path. It is the single slowest thing in the
+application and it grows with inventory — the cost is O(hostels returned × beds),
+computed on every request.
+
+That is what Phase 9 should address, and the measurement says so rather than
+guesswork. At 8 hostels this is acceptable; it is the thing that will hurt first.
 
 ---
 

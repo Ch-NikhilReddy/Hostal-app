@@ -63,17 +63,42 @@ export function resetRateLimits(): void {
 }
 
 /**
- * Whether limits are enforced.
+ * Whether rate limiting may be switched off at all.
  *
- * Resolved ONCE at import time from the environment, not per request: the environment
- * is read at import time elsewhere too, and re-reading it per request would only make
- * the value harder to reason about.
+ * Three ways to disable it, and the reasoning differs for each:
  *
- * `RATE_LIMIT_DISABLED` is only honoured when NODE_ENV=test, so it cannot weaken a
- * staging or production deployment even if it is present in the environment by
- * accident.
+ *   NODE_ENV=test        The suite shares one in-process counter map, and 351 tests
+ *                        would exhaust the OTP budget purely by existing, failing on
+ *                        ordering rather than on behaviour.
+ *
+ *   BENCHMARK_MODE=1     For scripts/probe-load.mjs. Without it that probe measures the
+ *                        LIMITER rather than the database: 625 requests in about a
+ *                        second exhausts the 600/min anonymous search budget, so the
+ *                        following scenario receives 625 refusals and the search
+ *                        latency baseline disappears. You cannot measure backend
+ *                        performance through a rate limiter, and weakening the limit
+ *                        to get a number would be the wrong trade — so the switch
+ *                        exists instead.
+ *
+ *   RATE_LIMIT_DISABLED  An explicit operator override, honoured ONLY outside
+ *                        production. Setting it on a production host is a refusal to
+ *                        boot, not a warning.
  */
-let limitingEnabled = !(config.isTest && config.RATE_LIMIT_DISABLED);
+function rateLimitingDisabled(): boolean {
+  // Refuse the escape hatch outright in production. An OTP endpoint with no send
+  // limit is an SMS-billing attack on the operator, and "the operator asked for it" is
+  // not sufficient reason to allow it.
+  if (config.isProduction && (config.RATE_LIMIT_DISABLED || config.BENCHMARK_MODE)) {
+    throw new Error(
+      'RATE_LIMIT_DISABLED and BENCHMARK_MODE must not be set in production. ' +
+        'An unthrottled OTP endpoint is a billing attack; see lib/rateLimit.ts.',
+    );
+  }
+
+  if (config.BENCHMARK_MODE) return true;
+  return config.isTest && config.RATE_LIMIT_DISABLED;
+}
+let limitingEnabled = !rateLimitingDisabled();
 
 /**
  * Test seam: turn enforcement on or off at runtime.
