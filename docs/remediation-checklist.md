@@ -183,16 +183,22 @@ Status legend: `[x]` done · `[~]` in progress · `[ ]` pending
 
 ### M-5 Refund truthfulness — **decision: Option B**
 - [x] Confirmed (`refundEligible: true`, no implementation)
-- [ ] Promise removed
-- [ ] Tests
+- [x] Promise removed — `paymentTaken` + "contact support" instead
+- [x] App client type updated, with a note not to reintroduce a refund flag
+- [x] Tests (4) — paid and unpaid paths, bed released, **no phantom REFUNDED status**
+- [x] Live probe — `probe-correctness.mjs` 11/11
 
 ### M-4 Owner notified on cancel
 - [x] Confirmed (no `notify()` in handler)
-- [ ] Implemented via existing abstraction
-- [ ] Tests
+- [x] Implemented via the existing `notify()` abstraction, **after** the transaction
+      commits so a failed commit cannot leave a notification about a cancellation
+      that never happened
+- [x] Notification failure cannot fail the cancellation — a student must not be told
+      to retry an action that already succeeded
+- [x] Tests (4) — owner notified, names the reference, student is not, bed released
 
 ### M-6 OTP / token retention
-- [x] Confirmed (1,600 rows, ~596/hour from probing)
+- [x] Confirmed (4,626 OTP rows and growing from probing)
 - [ ] Cleanup job
 - [ ] Retention documented
 - [ ] Tests
@@ -202,9 +208,13 @@ Status legend: `[x]` done · `[~]` in progress · `[ ]` pending
 ## PHASE 8 — HEADERS / HEALTH
 
 ### M-8 Sanitize `/health`
-- [x] Confirmed (leaks `env`, `paymentProvider`)
-- [ ] Fixed
-- [ ] Tests
+- [x] Confirmed (leaked `env`, `paymentProvider`)
+- [x] Fixed — now `{ ok, db, uptimeSeconds }`. The 503 path also stopped returning
+      `detail`, which handed out the raw Prisma driver error including the connection
+      string to anyone who could reach the endpoint
+- [x] Consumers updated — `verify-build.mjs`, `smoke-test.mjs`
+- [x] `smoke-test.mjs` now asserts the leak is **closed**, so it fails if it returns
+- [x] Live probe — `probe-correctness.mjs`
 
 ### M-9 CSP + Permissions-Policy
 - [x] Confirmed

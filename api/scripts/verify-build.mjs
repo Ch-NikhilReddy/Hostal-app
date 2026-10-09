@@ -118,13 +118,13 @@ async function main() {
     );
     check(
       '  ...reporting a live database',
-      booted && health.body.database === 'up',
-      booted ? `database: ${health.body.database}` : '',
+      booted && health.body.db === true,
+      booted ? `db: ${health.body.db}` : '',
     );
     check(
       '  ...and not echoing OTPs',
-      booted && health.body.env === 'development',
-      'ENABLE_DEV_OTP was empty, so this build must resolve devOtpEnabled=false',
+      booted && health.body.env === undefined,
+      'ENABLE_DEV_OTP was empty, and /health no longer reports the environment',
     );
   } finally {
     child.kill();

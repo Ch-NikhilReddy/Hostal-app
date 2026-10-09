@@ -651,7 +651,17 @@ bookingsRouter.post(
 
     const booking = await prisma.booking.findUnique({
       where: { bookingRef: ref },
-      include: { hostel: { select: { name: true, noticePeriodDays: true } }, payment: true },
+      include: {
+        // ownerId is needed so a cancellation can notify the owner (M-4).
+        hostel: {
+          select: {
+            name: true,
+            noticePeriodDays: true,
+            owner: { select: { userId: true } },
+          },
+        },
+        payment: true,
+      },
     });
 
     if (!booking) throw AppError.notFound('BOOKING_NOT_FOUND', 'That booking was not found.');
@@ -682,20 +692,55 @@ bookingsRouter.post(
       });
     });
 
-    // The refund itself is a separate, deliberate step (see refunds.routes). It is
-    // not automatic here: the money was captured to the platform, and returning it
-    // is an accounting action that needs to be recorded, not a side effect of a
-    // status change.
+    // Tell the owner.
+    //
+    // This was missing, and the omission is not neutral. A cancellation releases the
+    // bed back into inventory, so the owner's occupancy figure changes and they may
+    // have already turned the student away to fill it. Without a notification the
+    // owner finds out by opening the dashboard and noticing a gap — or by the student
+    // turning up at the gate.
+    //
+    // Sent after the transaction commits rather than inside it: notify() writes its own
+    // rows, and doing that inside the transaction would roll the notification back
+    // along with the cancellation if the commit itself failed, leaving the owner
+    // notified about a cancellation that never happened.
+    await notify(prisma, {
+      userId: booking.hostel.owner.userId,
+      title: 'Booking cancelled',
+      body: `The booking for ${booking.hostel.name} (${booking.bookingRef}) was cancelled by the student. The bed is available again.`,
+      channels: [NotificationChannel.IN_APP],
+    }).catch((err: unknown) => {
+      // A failed notification must not turn a completed cancellation into an error.
+      // The student should not be told "try again" for something that already
+      // succeeded, and retrying the cancel would hit the state-transition guard.
+      console.error('[bookings] owner notification failed for', booking.bookingRef, err);
+    });
+
+    // The refund itself is not automatic, and this response no longer claims one is
+    // coming.
+    //
+    // It used to answer `refundEligible: true` whenever a payment was PAID, plus "A
+    // refund will be processed under the hostel notice policy." There is no refund
+    // implementation anywhere in the codebase — no route, no Razorpay refund call, no
+    // reconciliation entry. So the API was telling a student their money would come
+    // back on the strength of a boolean that nothing acted on, and the student would
+    // have no way to tell the difference between a refund system and a promise.
+    //
+    // Now the response says what is actually true: the booking is cancelled, and money
+    // was taken, so contact support about it. When refunds are implemented this
+    // becomes a status lookup against a real refund record, and it should say
+    // something only that record can support.
+    const moneyTaken = booking.payment?.status === PaymentStatus.PAID;
+
     res.json({
       ok: true,
       bookingRef: booking.bookingRef,
       status: BookingStatus.CANCELLED_BY_STUDENT,
-      refundEligible: booking.payment?.status === PaymentStatus.PAID,
       noticePeriodDays: booking.hostel.noticePeriodDays,
-      message:
-        booking.payment?.status === PaymentStatus.PAID
-          ? 'Booking cancelled. A refund will be processed under the hostel notice policy.'
-          : 'Booking cancelled. No payment was taken.',
+      paymentTaken: moneyTaken,
+      message: moneyTaken
+        ? 'Booking cancelled. A payment was taken for this booking; contact support to arrange a refund.'
+        : 'Booking cancelled. No payment was taken.',
     });
   }),
 );

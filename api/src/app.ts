@@ -78,23 +78,37 @@ export function createApp(): Express {
     app.use('/uploads', express.static(config.uploadsDir, { maxAge: '7d' }));
   }
 
+  /**
+   * Liveness and readiness.
+   *
+   * Deliberately says almost nothing. It previously returned `env` and
+   * `paymentProvider`, which is a free reconnaissance gift: NODE_ENV confirms whether
+   * a development-only affordance like the OTP echo is live, and paymentProvider
+   * reveals whether the deployment is taking real money — i.e. how attractive it is.
+   * Neither is needed to decide whether to route traffic here, which is the only
+   * question this endpoint answers.
+   *
+   * `db: true|false` is kept because it is genuinely operational: a load balancer has
+   * to send traffic away from an instance whose database is unreachable.
+   */
   app.get('/health', async (_req, res) => {
     try {
       await prisma.$queryRaw`SELECT 1`;
       res.json({
         ok: true,
-        database: 'up',
-        paymentProvider: config.paymentProvider,
-        env: config.NODE_ENV,
+        db: true,
         uptimeSeconds: Math.round(process.uptime()),
       });
     } catch (err) {
+      // Logged in full server-side, because the operator needs the real cause. The
+      // response stays generic for the same reason as above: a health endpoint is
+      // polled by anyone who can reach it, and `detail` used to hand out the driver
+      // error — connection strings and all — to whoever asked.
+      console.error('[health] database check failed:', err);
       res.status(503).json({
         ok: false,
-        database: 'down',
-        // The cause is logged server-side; the response stays generic.
+        db: false,
         error: 'Service temporarily unavailable.',
-        detail: config.isProduction ? undefined : (err as Error).message,
       });
     }
   });

@@ -183,10 +183,19 @@ export async function getBooking(bookingRef: string) {
 }
 
 export async function cancelBooking(bookingRef: string, reason: string) {
+  // `refundEligible` is gone. The API used to return it as true whenever a payment was
+  // captured, but no refund is ever issued automatically — there is no refund route,
+  // no gateway refund call and no reconciliation entry. The flag told a student their
+  // money would come back on the strength of a boolean nothing acted on.
+  //
+  // `paymentTaken` is the fact the server can actually stand behind, and `message`
+  // now points at support rather than promising an outcome. Do not reintroduce a
+  // refund flag here: when refunds exist, this should return the status of a real
+  // refund record.
   return api.post<{
     ok: true;
     status: string;
-    refundEligible: boolean;
+    paymentTaken: boolean;
     noticePeriodDays: number;
     message: string;
   }>(`/v1/bookings/${bookingRef}/cancel`, { reason });

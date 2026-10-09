@@ -69,8 +69,18 @@ async function main() {
   // ---- Health ------------------------------------------------------------
   console.log('Health');
   const health = await api('/health');
-  check('API is up and the database answers', health.status === 200 && health.body.database === 'up');
-  check('running on the mock gateway', health.body.paymentProvider === 'mock');
+  check('API is up and the database answers', health.status === 200 && health.body.ok === true && health.body.db === true);
+
+  // Asserted in the direction the fix went. This used to check
+  // `paymentProvider === 'mock'` — i.e. it depended on /health disclosing which
+  // gateway was configured, which is exactly the reconnaissance leak M-8 removed. It
+  // now checks the leak is closed, so the smoke test fails if anyone puts it back.
+  const leaked = JSON.stringify(health.body);
+  check(
+    '/health discloses nothing about the deployment',
+    !/paymentProvider|"env"|NODE_ENV|mock|razorpay|msg91/i.test(leaked),
+    leaked,
+  );
 
   // ---- Auth --------------------------------------------------------------
   console.log('\nAuth');
