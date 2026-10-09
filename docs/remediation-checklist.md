@@ -268,10 +268,39 @@ Status legend: `[x]` done · `[~]` in progress · `[ ]` pending
 ---
 
 ## PHASE 11 — DEPLOYMENT
-- [ ] Dockerfile
-- [ ] Env validation at startup
-- [ ] Health checks
-- [ ] Rollback procedure
+- [x] Dockerfile — `api/Dockerfile`, multi-stage, `dumb-init`, unprivileged, HEALTHCHECK
+- [x] **Built and run, not just written.** Three defects found only by running it:
+      the unprivileged user could not create the upload directory (EACCES at boot);
+      `@prisma/client` re-pulled the Prisma CLI back in as an optional peer; and
+      the workspace install dragged React Native into the image.
+- [x] `verify-build --shape` runs as a build step, so a broken artifact cannot be
+      produced — and it prints that it skipped the boot half, and why
+- [x] Health check — returns 503 when the database is unreachable
+- [x] Graceful shutdown verified: SIGTERM → "Closed cleanly" (an ungraceful stop
+      drops in-flight payment webhooks)
+- [x] Env validation at startup — already present via the C-1/C-2/C-3 guards, and
+      verified *inside the image*: `OTP_PROVIDER=console` refused to start
+- [x] Rollback procedure — `docs/deployment.md` §6
+- [x] `.dockerignore` — keeps `.env` and database dumps out of image layers
+- [x] Image audit — `scripts/probe-image.mjs`, **17/17**
+
+### NEW-4 API image contained the whole monorepo
+- [x] **Found by measuring the built image, not by reading the Dockerfile.**
+      `npm ci --omit=dev` at the workspace root resolves every workspace, so the
+      runtime image was **494 MB** with React Native (83 MB), @expo (35 MB),
+      TypeScript (23 MB) and the Prisma CLI (49 MB) — none imported by the API,
+      all reachable from the internet
+- [x] Fixed — runtime stage installs `api/package.json` as the root package
+- [x] And the devDependencies are **deleted from the manifest** with `npm pkg delete`
+      before install. `--omit=dev` was not enough: `@prisma/client` declares `prisma`
+      as an optional peer and npm installs optional peers to satisfy them.
+      `--omit=peer` did not stop it either.
+- [x] Result: **494 MB → 107 MB**, and 17/17 image-audit checks pass
+- [ ] **Open trade-off:** the runtime image installs without the workspace lockfile,
+      so caret-ranged dependencies resolve to the newest matching version at build
+      time. `@prisma/client` and `prisma` are exact-pinned and unaffected. The
+      structural fix is a separate lockfile for the API, or dropping the mobile app
+      out of the workspace — a repo-shape decision, not a patch.
 
 ---
 

@@ -1,7 +1,17 @@
 /**
  * Proves the production build is actually runnable.
  *
- *   node scripts/verify-build.mjs
+ *   node scripts/verify-build.mjs            shape + boot
+ *   node scripts/verify-build.mjs --shape    shape only, no database needed
+ *
+ * The two halves are split because they need different environments. The shape checks
+ * — dist/server.js at the path `npm start` runs, no tests, no seed, no source maps —
+ * are what catch NEW-1 and NEW-2, and they need nothing but the filesystem, so they
+ * run inside the Docker build where no database exists. The boot check needs a
+ * reachable database, so it runs in CI and locally where there is one.
+ *
+ * `--shape` is not a weaker mode and does not skip anything silently: it prints which
+ * checks it skipped and why.
  *
  * This exists because of NEW-1: `npm run build` exited 0 and shipped a server at
  * dist/src/server.js, while `npm start` ran `node dist/server.js`. TypeScript reported
@@ -88,13 +98,26 @@ async function main() {
   }
 
   // ---- 3. it actually boots ------------------------------------------------
-  // NODE_ENV=production so the startup guards are exercised: this is the
-  // configuration that must refuse to start rather than run half-configured.
+  if (process.argv.includes('--shape')) {
+    console.log(
+      '\n  SKIPPED the boot check (--shape): no database is reachable from a Docker\n' +
+        '  build layer. The artifact shape — the thing that actually broke in NEW-1 and\n' +
+        '  NEW-2 — is fully checked above. The boot check runs in CI and locally.\n',
+    );
+    console.log(`${failures === 0 ? 'ARTIFACT SHAPE VERIFIED' : `${failures} CHECK(S) FAILED`}\n`);
+    process.exitCode = failures === 0 ? 0 : 1;
+    return;
+  }
+
   const child = spawn(process.execPath, ['dist/server.js'], {
     cwd: apiDir,
     env: {
       ...process.env,
-      NODE_ENV: 'development', // see note below
+      // Deliberately development, not production. NODE_ENV=production makes the
+      // startup guards refuse to boot without CORS_ORIGINS, a real JWT_SECRET and a
+      // paid SMS provider — so a production-mode boot here would fail for reasons that
+      // have nothing to do with whether the artifact is runnable.
+      NODE_ENV: 'development',
       PORT: String(PORT),
       CORS_ORIGINS: 'http://localhost:5173',
       ENABLE_DEV_OTP: '',

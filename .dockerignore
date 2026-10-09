@@ -1,0 +1,42 @@
+# Dockerignore for the API image.
+#
+# The context is the repository root (the build needs the workspace manifests), so
+# without this the daemon ships node_modules, dist, .env and the database backups to
+# the builder — gigabytes, several minutes per build, and a .env in an image layer.
+
+# Secrets. .env holds DATABASE_URL and MSG91_AUTH_KEY. Baking it into an image puts
+# it in a layer that survives history rewrites short of a rebuild from scratch.
+.env
+.env.*
+!.env.example
+
+node_modules
+**/node_modules
+dist
+**/dist
+build
+**/build
+
+# Database dumps. A backup in an image is a data leak in an image.
+api/backups
+
+.git
+.github
+.gitattributes
+.gitignore
+
+# app/ and web/ source is NOT excluded, despite the API image not needing it.
+#
+# npm workspaces will not install without every workspace manifest present, so the
+# Dockerfile copies app/package.json and web/package.json before `npm ci`. Excluding
+# those directories here breaks the build at COPY time — which is what happened the
+# first time this was written. Their node_modules is covered by **/node_modules above.
+scripts
+*.md
+*.log
+*.dump
+
+.vscode
+.idea
+.DS_Store
+Thumbs.db
