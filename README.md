@@ -251,4 +251,4 @@ reads as working when it does not.
 ## Where to go next
 
 See [docs/roadmap.md](docs/roadmap.md) for the ordered path from this MVP to a
-Play Store launch, including what each step unlocks and what it costs in time.
+Play Store launch, including what each step unlocks and what it costs in time."# Hostal-app" 
