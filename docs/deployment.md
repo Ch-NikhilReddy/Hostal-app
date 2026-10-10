@@ -139,9 +139,75 @@ without understanding it.
 
 ## 7. After the deploy
 
-- `/health` returns `{ ok, database, ... }` and is the readiness probe. It must be on
-  the load balancer's health path.
+- `/health` returns `{ ok, db, ... }` and is the readiness probe. It must be on the load
+  balancer's health path.
 - Watch the first real booking end to end, including the notification.
-- Confirm OTP delivery is actually going out through MSG91 and not silently falling
-  back to the console. The startup banner makes this visible, but only if someone is
-  looking at the logs.
+- Confirm OTP delivery is actually going out through MSG91 and not silently falling back
+  to the console. The startup banner makes this visible, but only if someone is looking
+  at the logs.
+
+---
+
+## 8. Running in a GitHub Codespace
+
+Codespaces forward ports over HTTPS to a per-space hostname, and that changes two
+things the local setup does not have to think about. Both fail in ways that look like
+something else is broken, which is why they are written down here rather than left to be
+discovered.
+
+**1. `localhost` in a browser is not the Codespace.**
+
+The dashboard runs in *your laptop's* browser, so `localhost:4000` there is your laptop,
+not the space. After forwarding port 4000, the API lives at:
+
+```
+https://<your-codespace-name>-4000.app.github.dev
+```
+
+```bash
+# web/.env.local — Vite reads this, and it is gitignored
+echo "VITE_API_URL=https://$(hostname | cut -d. -f1)-4000.app.github.dev" >> web/.env.local
+```
+
+`hostname` yields the codespace name, so this does not need editing if you rename the
+shell variable.
+
+**2. The forwarded origin is not loopback, so CORS must name it explicitly.**
+
+C-1 allows loopback in development, which is right on a laptop and wrong here: the
+dashboard's origin is `https://<name>-5173.app.github.dev`, and no loopback rule covers
+it.
+
+```bash
+# in the repository-root .env
+CORS_ORIGINS=https://$(hostname | cut -d. -f1)-5173.app.github.dev,http://localhost:5173
+```
+
+Without this the dashboard loads and **every API call returns 403** — which reads like a
+broken API rather than a browser-only origin problem.
+
+**3. Where the env file goes.**
+
+Use the repository-root `.env` from `.env.example`, not a partial `api/.env`.
+`config.ts` loads `api/.env` first and then the root `.env`, and `process.loadEnvFile`
+never overwrites a variable that is already set — so a partial `api/.env` silently wins
+for the keys it contains while everything else falls back to built-in defaults. With
+only `DATABASE_URL` and `JWT_SECRET` set, that leaves `CORS_ORIGINS` and
+`ENABLE_DEV_OTP` unset and produces exactly the 403 above.
+
+**4. Docker has to be enabled in the space.**
+
+```bash
+docker info >/dev/null 2>&1 && echo "docker ok" || echo "enable Docker in the Codespace"
+npm run db:up && curl -s localhost:4000/health
+```
+
+Look for `{"ok":true,"db":true}`. The API starts happily without a database — the
+connection is only exercised on the first request — so "the process started" proves
+nothing; `db:false` is the thing to look for.
+
+**5. The mobile app will not reach a Codespace comfortably.**
+
+Expo needs a reachable host, and a forwarded HTTPS URL with no LAN path is awkward for
+it. For mobile work run the API locally and forward the other way, or use
+`npx expo start --tunnel`. The web dashboard has no such problem.
