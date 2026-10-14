@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { View, KeyboardAvoidingView, Platform, ScrollView, Pressable } from 'react-native';
-import { useRouter } from 'expo-router';
 import { Button, Card, Divider, Input, Txt, sharedStyles } from '@/components/ui';
 import { colors, spacing, fontSize, radius } from '@/theme/tokens';
 import { useAuth } from '@/store/auth';
@@ -12,7 +11,6 @@ function normalisePhone(raw: string): string {
 }
 
 export default function LoginScreen() {
-  const router = useRouter();
   const { startLogin, completeLogin, devOtp, clearDevOtp, error, clearError, isAuthenticating } = useAuth();
 
   const [step, setStep] = useState<'phone' | 'otp'>('phone');
@@ -101,15 +99,9 @@ export default function LoginScreen() {
                 testID="send-code"
               />
 
-              <Pressable
-                onPress={() => router.push('/(auth)/register')}
-                accessibilityRole="button"
-                style={{ marginTop: spacing.xl, alignItems: 'center', paddingVertical: spacing.md }}
-              >
-                <Txt variant="body" color={colors.primary} weight="600">
-                  Are you a hostel owner? List your property →
-                </Txt>
-              </Pressable>
+              <Txt variant="caption" color={colors.textMuted} style={{ marginTop: spacing.xl, textAlign: 'center' }}>
+                Hostel owner? Sign in with the mobile number registered on your account.
+              </Txt>
             </>
           ) : (
             <>

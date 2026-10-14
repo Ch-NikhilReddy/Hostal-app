@@ -43,16 +43,17 @@ export default function TabsLayout() {
         }}
       />
       {/* The owner tab only appears for owner accounts: a student must never be
-          able to reach owner tooling by tapping a tab. */}
-      {isOwner ? (
-        <Tabs.Screen
-          name="owner"
-          options={{
-            title: 'Owner',
-            tabBarIcon: ({ focused }) => <TabIcon emoji="🏢" focused={focused} />,
-          }}
-        />
-      ) : null}
+          able to reach owner tooling by tapping a tab. `href: null` hides the
+          tab (children must all be <Tabs.Screen/>, so we can't conditionally
+          omit it without tripping expo-router's layout warning). */}
+      <Tabs.Screen
+        name="owner"
+        options={{
+          title: 'Owner',
+          href: isOwner ? undefined : null,
+          tabBarIcon: ({ focused }) => <TabIcon emoji="🏢" focused={focused} />,
+        }}
+      />
       <Tabs.Screen
         name="profile"
         options={{
