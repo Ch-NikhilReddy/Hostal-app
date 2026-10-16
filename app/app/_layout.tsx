@@ -1,7 +1,12 @@
-import { Stack } from 'expo-router';
+import { Stack, useRootNavigationState } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import { useEffect } from 'react';
+import { View } from 'react-native';
+import { useRouter, useSegments } from 'expo-router';
 import { colors } from '@/theme/tokens';
+import { useAuth } from '@/store/auth';
+import { LoadingState } from '@/components/ui';
 
 /**
  * Root layout.
@@ -12,6 +17,35 @@ import { colors } from '@/theme/tokens';
  * start.
  */
 export default function RootLayout() {
+  const { user, isBootstrapping, bootstrap } = useAuth();
+  const router = useRouter();
+  const segments = useSegments();
+  const navigationState = useRootNavigationState();
+
+  useEffect(() => {
+    void bootstrap();
+  }, [bootstrap]);
+
+  useEffect(() => {
+    if (isBootstrapping || !navigationState?.key) return;
+    const inAuth = segments[0] === '(auth)';
+    if (!user && !inAuth) {
+      router.replace('/(auth)/login');
+    } else if (user && inAuth) {
+      router.replace('/(tabs)');
+    }
+  }, [user, isBootstrapping, segments, router, navigationState?.key]);
+
+  if (isBootstrapping) {
+    return (
+      <SafeAreaProvider>
+        <View style={{ flex: 1, backgroundColor: colors.background, justifyContent: 'center' }}>
+          <LoadingState label="Welcome to HostelMitra" />
+        </View>
+      </SafeAreaProvider>
+    );
+  }
+
   return (
     <SafeAreaProvider>
       <StatusBar style="light" />

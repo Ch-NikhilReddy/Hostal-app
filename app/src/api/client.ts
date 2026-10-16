@@ -48,6 +48,19 @@ let accessToken: string | null = null;
 let refreshToken: string | null = null;
 let onTokenRefresh: ((access: string, refresh: string) => Promise<void>) | null = null;
 
+/**
+ * Resolves once the persisted tokens have been read from SecureStore.
+ *
+ * Startup must await this before deciding whether a session exists. Otherwise
+ * `getAccessToken()` can still be `null` while the native read is in flight,
+ * which makes a signed-in user look signed out (and vice versa).
+ */
+let tokensLoaded: Promise<void> = Promise.resolve();
+
+export function whenTokensLoaded(): Promise<void> {
+  return tokensLoaded;
+}
+
 export function setTokenHandlers(handlers: {
   onAccess: (token: string | null) => Promise<void>;
   onRefresh: (token: string | null) => Promise<void>;
@@ -55,10 +68,17 @@ export function setTokenHandlers(handlers: {
   load: () => Promise<{ access: string | null; refresh: string | null }>;
 }) {
   onTokenRefresh = handlers.persist;
-  void (async () => {
-    const stored = await handlers.load();
-    accessToken = stored.access;
-    refreshToken = stored.refresh;
+  tokensLoaded = (async () => {
+    try {
+      const stored = await handlers.load();
+      accessToken = stored.access;
+      refreshToken = stored.refresh;
+    } catch {
+      // A failed SecureStore read must not block startup; the user simply
+      // starts signed out and can sign in again.
+      accessToken = null;
+      refreshToken = null;
+    }
   })();
 }
 
@@ -80,6 +100,25 @@ export function clearTokens(): void {
 }
 
 // ---- Core request ----------------------------------------------------------
+
+/**
+ * Every network call gets a hard deadline.
+ *
+ * Without this, a stalled connection (free-tier cold start, weak mobile data)
+ * leaves callers awaiting forever — and on the startup path that means the app
+ * sits on the loading gate and never becomes interactive.
+ */
+const REQUEST_TIMEOUT_MS = 15000;
+
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 type RequestOptions = {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
@@ -104,7 +143,7 @@ async function refreshAccessToken(): Promise<boolean> {
   refreshInFlight = (async () => {
     if (!refreshToken) return false;
     try {
-      const res = await fetch(`${BASE_URL}/v1/auth/refresh`, {
+      const res = await fetchWithTimeout(`${BASE_URL}/v1/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refreshToken }),
@@ -135,7 +174,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
   let res: Response;
   try {
-    res = await fetch(`${BASE_URL}${path}`, {
+    res = await fetchWithTimeout(`${BASE_URL}${path}`, {
       method,
       headers: {
         ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),

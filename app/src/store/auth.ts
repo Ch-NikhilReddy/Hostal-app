@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
-import { clearTokens, getAccessToken, setTokenHandlers, setTokens } from '@/api/client';
+import { clearTokens, getAccessToken, setTokenHandlers, setTokens, whenTokensLoaded } from '@/api/client';
 import { getMe, logout as apiLogout, requestOtp, verifyOtp } from '@/api/endpoints';
 import type { Role, User } from '@/api/types';
 
@@ -43,6 +43,14 @@ export const useAuth = create<AuthState>((set, get) => ({
     const state = get();
     if (!state.isBootstrapping) return;
 
+    // Wait for the SecureStore read, but never longer than a beat: if the native
+    // read is stuck we still want to reach the sign-in screen.
+    await Promise.race([
+      whenTokensLoaded(),
+      new Promise((resolve) => setTimeout(resolve, 3000)),
+    ]);
+    if (!get().isBootstrapping) return;
+
     const hasToken = Boolean(getAccessToken());
     if (!hasToken) {
       set({ isBootstrapping: false });
@@ -54,8 +62,8 @@ export const useAuth = create<AuthState>((set, get) => ({
       set({ user, isBootstrapping: false });
     } catch {
       // A 401 here means the refresh token expired and the client already cleared
-      // it. Anything else (offline) keeps the user signed in optimistically, so a
-      // flaky network does not log someone out.
+      // it. Anything else (offline, timeout) keeps the user signed in optimistically,
+      // so a flaky network does not log someone out.
       set({ isBootstrapping: false });
     }
   },
