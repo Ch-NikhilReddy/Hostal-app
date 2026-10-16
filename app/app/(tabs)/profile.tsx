@@ -32,7 +32,7 @@ export default function ProfileScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [dashboard, setDashboard] = useState<{ pendingApprovals: number } | null>(null);
 
-  const isOwner = user?.role === 'OWNER' || user?.role === 'ADMIN';
+  const isOwner = user?.role === 'OWNER';
 
   const load = useCallback(async () => {
     setRefreshing(true);

@@ -146,7 +146,13 @@ setTokenHandlers({
   onRefresh: async () => undefined,
 });
 
-/** Whether the signed-in user should see the owner experience. */
+/**
+ * Whether the signed-in user should see the owner experience.
+ *
+ * OWNER only. The API deliberately refuses ADMIN on `/v1/owner/*` (an admin has a
+ * separate surface), so treating admins as owners here would render screens that
+ * can only ever return 403.
+ */
 export function hasOwnerRole(user: User | null): boolean {
-  return user?.role === ('OWNER' satisfies Role) || user?.role === ('ADMIN' satisfies Role);
+  return user?.role === ('OWNER' satisfies Role);
 }

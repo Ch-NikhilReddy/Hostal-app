@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Redirect, Stack } from 'expo-router';
 import { View } from 'react-native';
 import { useAuth } from '@/store/auth';
+import { APP_BUILD } from '@/build-info';
 import { LoadingState } from '@/components/ui';
 
 /**
@@ -21,19 +22,19 @@ export default function AuthLayout() {
   if (isBootstrapping) {
     return (
       <View style={{ flex: 1, backgroundColor: '#F8FAFC', justifyContent: 'center' }}>
-        <LoadingState label="Welcome to HostelMitra" />
+        <LoadingState label={`Welcome to HostelMitra · ${APP_BUILD}`} />
       </View>
     );
   }
 
-  if (!user) {
-    return <Redirect href="/(auth)/login" />;
+  // Signed in: leave the auth group for the app tabs.
+  if (user) {
+    return <Redirect href="/(tabs)" />;
   }
 
-  return <Redirect href="/(tabs)" />;
-}
-
-export function AuthStack() {
+  // Signed out: render the sign-in flow. This MUST render the nested Stack —
+  // redirecting back to `/(auth)/login` from the group that owns `login` makes
+  // expo-router redirect to itself on every render and the app never settles.
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="login" />

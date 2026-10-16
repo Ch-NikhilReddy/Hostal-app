@@ -42,7 +42,9 @@ export default function BookingDetailScreen() {
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
 
-  const isOwnerView = user?.role === 'OWNER' || user?.role === 'ADMIN';
+  // Only a real OWNER may act on the owner side. The API's owner routes are gated
+  // on requireRole(OWNER) and refuse ADMIN, so an admin must not see owner actions.
+  const isOwnerView = user?.role === 'OWNER';
 
   const load = useCallback(async () => {
     if (!ref) return;

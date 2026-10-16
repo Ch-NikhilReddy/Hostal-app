@@ -14,7 +14,7 @@ function TabIcon({ emoji, focused }: { emoji: string; focused: boolean }) {
 export default function TabsLayout() {
   const { user } = useAuth();
   const router = useRouter();
-  const isOwner = user?.role === 'OWNER' || user?.role === 'ADMIN';
+  const isOwner = user?.role === 'OWNER';
 
   return (
     <Tabs

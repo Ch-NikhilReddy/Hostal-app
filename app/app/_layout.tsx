@@ -5,8 +5,16 @@ import { useEffect } from 'react';
 import { View } from 'react-native';
 import { useRouter, useSegments } from 'expo-router';
 import { colors } from '@/theme/tokens';
+import { APP_BUILD } from '@/build-info';
 import { useAuth } from '@/store/auth';
 import { LoadingState } from '@/components/ui';
+
+// Start the root navigator on the auth group. Without this, the URL `/` resolves
+// to the tabs' index route, so a signed-out launch briefly mounts the Explore
+// screen (and fires its search request) before being redirected to sign-in.
+export const unstable_settings = {
+  initialRouteName: '(auth)',
+};
 
 /**
  * Root layout.
@@ -40,7 +48,7 @@ export default function RootLayout() {
     return (
       <SafeAreaProvider>
         <View style={{ flex: 1, backgroundColor: colors.background, justifyContent: 'center' }}>
-          <LoadingState label="Welcome to HostelMitra" />
+          <LoadingState label={`Welcome to HostelMitra · ${APP_BUILD}`} />
         </View>
       </SafeAreaProvider>
     );

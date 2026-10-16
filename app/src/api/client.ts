@@ -108,13 +108,25 @@ export function clearTokens(): void {
  * leaves callers awaiting forever — and on the startup path that means the app
  * sits on the loading gate and never becomes interactive.
  */
-const REQUEST_TIMEOUT_MS = 15000;
+const REQUEST_TIMEOUT_MS = 10000;
 
+/**
+ * Fetch with a guaranteed deadline.
+ *
+ * Two mechanisms, because neither alone is reliable on Android: `AbortController`
+ * frees the socket, and the `Promise.race` is the backstop that guarantees the
+ * caller settles even if the platform's fetch ignores the abort signal.
+ */
 async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    return await Promise.race([
+      fetch(url, { ...init, signal: controller.signal }),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Request timed out')), REQUEST_TIMEOUT_MS);
+      }),
+    ]);
   } finally {
     clearTimeout(timer);
   }

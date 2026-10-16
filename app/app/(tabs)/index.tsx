@@ -22,6 +22,7 @@ import {
   sharedStyles,
 } from '@/components/ui';
 import { colors, spacing, radius, fontSize } from '@/theme/tokens';
+import { APP_BUILD } from '@/build-info';
 
 type SortKey = NonNullable<SearchParams['sort']>;
 
@@ -124,6 +125,18 @@ export default function ExploreScreen() {
     void load('initial');
   }, [load]);
 
+  // Watchdog: the request layer already times out, but if anything still leaves a
+  // request in flight, release the spinner so the user sees an error and a Retry
+  // button rather than an endless "Finding hostels near you…".
+  useEffect(() => {
+    if (!loading) return;
+    const timer = setTimeout(() => {
+      setLoading(false);
+      setError((prev) => prev ?? 'Taking too long to reach the server. Check your internet and try again.');
+    }, 12000);
+    return () => clearTimeout(timer);
+  }, [loading]);
+
   // Re-run when the tab regains focus, so a listing booked elsewhere in the app is
   // reflected without a manual pull-to-refresh.
   useFocusEffect(
@@ -147,7 +160,7 @@ export default function ExploreScreen() {
   }
 
   if (loading && results.length === 0) {
-    return <LoadingState label="Finding hostels near you…" />;
+    return <LoadingState label={`Finding hostels near you… · ${APP_BUILD}`} />;
   }
 
   if (error && results.length === 0) {
